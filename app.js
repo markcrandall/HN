@@ -188,7 +188,8 @@ function linkUrl(s) {
 
 // The video ref for a story, or null when nothing should be intercepted.
 function videoRef(s) {
-  if (!getSetting('ytEmbed')) return null;
+  const on = renderPass ? renderPass.ytEmbed : getSetting('ytEmbed');
+  if (!on) return null;
   return youtubeRef(s.url || s.hnLink);
 }
 
@@ -218,6 +219,7 @@ function mutateSaved(fn) {
 
 function isSaved(id) {
   const key = String(id);
+  if (renderPass) return renderPass.saved.has(key);
   return readSaved().some(s => String(s.id) === key);
 }
 
@@ -625,11 +627,13 @@ function storyRow(s) {
     if (s.domain) actions.appendChild(actionButton('block site', 'Block ' + normHost(s.domain) + ' and its subdomains', 'block-site', { name: s.domain, title: s.title, extra: s.user }));
   }
 
-  return el('div', { class: 'story' }, [
+  const row = el('div', { class: 'story' }, [
     el('div', { class: 'score', text: String(s.score) }),
     info,
     actions
   ]);
+  row.setAttribute('data-id', String(s.id));   // how the saved pass finds it again
+  return row;
 }
 
 // Which stored rule caused this domain to be hidden (so "unblock" removes the right one).
@@ -641,6 +645,22 @@ function matchingSiteRule(domain) {
 function matchesQuery(s, query) {
   if (!query) return true;
   return (s.title + ' ' + (s.domain || '') + ' ' + s.user).toLowerCase().includes(query);
+}
+
+/* Reads hoisted out of the row loop for the length of one render. Every lookup
+   below used to parse its key out of localStorage again for each of 500 rows.
+   Never outlives the synchronous pass that sets it, so it cannot go stale. */
+let renderPass = null;
+
+function beginRenderPass() {
+  renderPass = {
+    saved: new Set(readSaved().map(s => String(s.id))),
+    ytEmbed: getSetting('ytEmbed')
+  };
+}
+
+function endRenderPass() {
+  renderPass = null;
 }
 
 function renderStories() {
@@ -656,16 +676,45 @@ function renderStories() {
       frag.appendChild(savedRow(item));
     }
   } else {
-    for (const s of stories[currentTab] || []) {
-      const blocked = isStoryBlocked(s);
-      if (showBlocked ? !blocked : blocked) continue;
-      if (!matchesQuery(s, query)) continue;
-      frag.appendChild(storyRow(s));
+    beginRenderPass();
+    try {
+      for (const s of stories[currentTab] || []) {
+        const blocked = isStoryBlocked(s);
+        if (showBlocked ? !blocked : blocked) continue;
+        if (!matchesQuery(s, query)) continue;
+        frag.appendChild(storyRow(s));
+      }
+    } finally {
+      endRenderPass();
     }
   }
 
   container.innerHTML = '';
   container.appendChild(frag);
+  scheduleSavedMarks();
+}
+
+/* The stripe is painted in a second pass, after the browser has had the rows on
+   screen, so the list appears without waiting on it. It is a class toggle and
+   an inset shadow, so it costs no layout and cannot move anything. */
+
+let savedMarkFrame = null;
+
+function scheduleSavedMarks() {
+  if (savedMarkFrame !== null) cancelAnimationFrame(savedMarkFrame);
+  savedMarkFrame = requestAnimationFrame(() => {
+    savedMarkFrame = null;
+    markSavedRows();
+  });
+}
+
+function markSavedRows() {
+  // Saved rows carry no data-id, so the Saved tab is skipped: striping every
+  // row of a list that is entirely saved says nothing.
+  const rows = document.querySelectorAll('#storyList .story[data-id]');
+  if (!rows.length) return;
+  const saved = new Set(readSaved().map(s => String(s.id)));
+  rows.forEach(row => row.classList.toggle('is-saved', saved.has(row.getAttribute('data-id'))));
 }
 
 function renderBlockedList(containerId, key, action) {

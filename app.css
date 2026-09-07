@@ -249,6 +249,9 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
   transition: background 0.15s;
 }
 .story:hover { background: var(--surface2); }
+/* Saved. An inset shadow rather than a border, so adding it after the rows are
+   painted moves nothing and forces no reflow. */
+.story.is-saved { box-shadow: inset 3px 0 0 var(--orange); }
 /* A saved row is a story row without the score, so it drops the first column. */
 .story.saved-row { grid-template-columns: 1fr auto; }
 

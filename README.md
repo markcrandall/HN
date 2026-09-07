@@ -25,9 +25,11 @@ accepts the older blocklist-only backups.
 
 ## Saved
 
-Every story in the feed has a **save** button. Saved stories collect on the
-**Saved** tab, newest first, showing the same information as the feed rows
-without the score, each with a delete button. The filter box works there too.
+Every story in the feed has a **save** button. A saved story carries an orange
+stripe down its left edge, so you can see what you have already kept while
+scrolling without reading the buttons. Saved stories collect on the **Saved**
+tab, newest first, showing the same information as the feed rows without the
+score, each with a delete button. The filter box works there too.
 
 Saved is your own list, so it behaves differently from the feed in three ways:
 it never fetches and Refresh does nothing on it, blocking a site does not hide a
