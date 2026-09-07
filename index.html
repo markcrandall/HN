@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>HN Tracker</title>
+<meta name="description" content="Hacker News reader with per-site and per-user blocklists.">
+<meta name="theme-color" content="#16213e">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HN">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true" focusable="false">
+  <symbol id="icon-undo" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="7.5" stroke-dasharray="29.5 11.8 5.9 0"></circle>
+    <polygon points="13.62 3.02 19.28 4.72 15.32 8.68"></polygon>
+  </symbol>
+</svg>
+
+<div class="appbar">
+  <header>
+    <h1>HN Tracker</h1>
+    <div class="header-search">
+      <span class="search-icon">&#128269;</span>
+      <input type="text" id="searchInput" placeholder="Filter stories..." aria-label="Filter stories">
+      <button class="search-clear" id="searchClear" type="button" aria-label="Clear filter">&times;</button>
+    </div>
+    <div class="controls">
+      <button id="btnRefresh" type="button">Refresh</button>
+      <button id="btnSites" type="button">Blocked Sites</button>
+      <button id="btnUsers" type="button">Blocked Users</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="top" type="button">Top Stories</button>
+    <button class="tab-btn" data-tab="new" type="button">Newest</button>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="undoBtn" type="button" title="Undo last change" aria-label="Undo last change" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>
+    </button>
+    <button class="disclosure-btn" id="disclosureBtn" type="button" aria-expanded="false" aria-controls="viewToggle" aria-label="More options">&#8942;</button>
+    <div class="view-toggle" id="viewToggle">
+      <span class="view-label">Blocked View</span>
+      <button id="viewToggleBtn" type="button">Show Blocked <span class="badge" id="blockedBadge">0</span></button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div class="status-bar">
+    <div class="counts">
+      <span id="storyCount"></span>
+      <span id="hiddenCount"></span>
+    </div>
+    <div id="loading" role="status" aria-live="polite"></div>
+  </div>
+  <div class="list-message" id="listMessage" role="status" hidden></div>
+  <div class="story-list" id="storyList"></div>
+</main>
+
+<!-- Blocked Sites Panel -->
+<div class="panel-overlay" id="blockedSitesPanel">
+  <div class="panel" role="dialog" aria-modal="true" aria-label="Blocked Sites">
+    <div class="panel-header">
+      <h2>Blocked Sites</h2>
+      <button class="panel-close" data-close="blockedSites" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-tools">
+        <button data-act="export" type="button">Export backup</button>
+        <button data-act="import" type="button">Import / merge</button>
+        <button data-act="undo" class="icon-btn warn" type="button" title="Undo last change" aria-label="Undo last change" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>
+        </button>
+      </div>
+      <div class="panel-note">
+        Blocking <b>reuters.com</b> also blocks <b>www.reuters.com</b> and any subdomain.
+        Blocklists are saved in this browser only. Clearing &ldquo;Cookies and other site data&rdquo; wipes them, so export a backup now and then.
+      </div>
+      <div class="panel-count" id="sitesCount"></div>
+      <div class="block-input">
+        <input type="text" id="blockSiteInput" placeholder="e.g. example.com" aria-label="Site to block">
+        <button id="blockSiteBtn" type="button">Block</button>
+      </div>
+      <div id="blockedSitesList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Blocked Users Panel -->
+<div class="panel-overlay" id="blockedUsersPanel">
+  <div class="panel" role="dialog" aria-modal="true" aria-label="Blocked Users">
+    <div class="panel-header">
+      <h2>Blocked Users</h2>
+      <button class="panel-close" data-close="blockedUsers" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-tools">
+        <button data-act="export" type="button">Export backup</button>
+        <button data-act="import" type="button">Import / merge</button>
+        <button data-act="undo" class="icon-btn warn" type="button" title="Undo last change" aria-label="Undo last change" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>
+        </button>
+      </div>
+      <div class="panel-note">
+        Usernames are matched exactly (case-insensitive). Import always <b>merges</b>: it never replaces your list.
+      </div>
+      <div class="panel-count" id="usersCount"></div>
+      <div class="block-input">
+        <input type="text" id="blockUserInput" placeholder="e.g. username" aria-label="User to block">
+        <button id="blockUserBtn" type="button">Block</button>
+      </div>
+      <div id="blockedUsersList"></div>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="importFile" accept="application/json,.json" style="display:none">
+
+<div id="toast" role="status" aria-live="polite">
+  <span id="toastMsg"></span>
+  <span class="toast-actions" id="toastActions" hidden>
+    <button id="toastConfirm" type="button">Undo import</button>
+    <button id="toastCancel" type="button" class="ghost">Keep</button>
+  </span>
+  <span class="toast-note" id="toastNote" hidden></span>
+</div>
+
+</body>
+</html>

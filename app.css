@@ -1,0 +1,569 @@
+/* ============================================================
+   FONTS
+   Atkinson Hyperlegible, vendored so the app owns its own type and
+   never falls through to a platform substitute. Weights 400 and 700
+   only, latin subset, no italics: nothing in the app sets one.
+   ============================================================ */
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/atkinson-hyperlegible-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/atkinson-hyperlegible-700.woff2') format('woff2');
+}
+
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --accent: #e94560;
+  --text: #eee;
+  --muted: #888;
+  --green: #4ecca3;
+  --orange: #ff6600;
+  --border: #2a2a4a;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.svg-sprite { display: none; }
+
+:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+header {
+  background: var(--surface);
+  border-bottom: 2px solid var(--orange);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+header h1 { font-size: 1.35rem; color: var(--orange); }
+.header-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  max-width: 400px;
+  margin: 0 16px;
+}
+.header-search .search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+.header-search input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 32px 7px 32px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+.header-search input:focus { outline: none; border-color: var(--orange); }
+.header-search .search-clear {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  display: none;
+}
+.header-search .search-clear:hover { color: var(--text); }
+.header-search .search-clear.visible { display: block; }
+header .controls { display: flex; gap: 8px; }
+header button, .tab-btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-family: inherit;
+}
+header button:hover, .tab-btn:hover { background: var(--accent); }
+
+.tabs {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+}
+/* Enough clear space that the extended tap areas of the two icon controls
+   cannot overlap each other or the tabs. */
+.tabs .icon-btn, .tabs .disclosure-btn { margin-left: 10px; }
+.tab-btn { border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 18px; color: var(--muted); background: transparent; }
+.tab-btn.active { border-bottom-color: var(--orange); color: var(--orange); background: var(--surface2); }
+.tabs .spacer { flex: 1; }
+
+/* Icon-only controls. The visible box never grows past the text beside it;
+   the ::after pad extends the tap target invisibly (D33). */
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 4px 7px;
+  line-height: 0;
+  position: relative;
+}
+.icon-btn svg { width: 19px; height: 19px; display: block; }
+.icon-btn svg circle { fill: none; stroke: currentColor; stroke-width: 2; }
+.icon-btn svg polygon { fill: currentColor; stroke: none; }
+.icon-btn:hover:not(:disabled) { background: var(--accent); }
+.icon-btn:disabled { opacity: 0.35; cursor: default; }
+.icon-btn::after { content: ''; position: absolute; inset: -10px -3px; }
+.icon-btn.warn { color: var(--green); border-color: var(--green); }
+.icon-btn.warn:hover:not(:disabled) { background: var(--green); color: #111; }
+
+.disclosure-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 5px 9px;
+  position: relative;
+  font-family: inherit;
+}
+.disclosure-btn::after { content: ''; position: absolute; inset: -10px -3px; }
+.disclosure-btn[aria-expanded="true"] { border-color: var(--orange); color: var(--orange); }
+
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.view-toggle .view-label {
+  font-size: 0.78rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  display: none;
+}
+body.blocked-view .view-toggle .view-label { display: inline; }
+.view-toggle button {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.83rem;
+  font-family: inherit;
+}
+.view-toggle button:hover { background: var(--accent); }
+.view-toggle .badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 4px;
+}
+body.blocked-view header { border-bottom-color: var(--accent); }
+body.blocked-view .story .actions button { border-color: var(--green); color: var(--green); }
+body.blocked-view .story .actions button:hover { background: var(--green); color: #fff; border-color: var(--green); }
+
+main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 0.83rem;
+  color: var(--muted);
+  gap: 12px;
+}
+.status-bar .counts span { margin-right: 16px; }
+#loading { color: var(--green); text-align: right; }
+
+/* Persistent, non-fading message for a cold failure: nothing to show and
+   nothing arrived. Worded about the request, never about the device (D44). */
+.list-message {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 16px 18px;
+  margin-bottom: 12px;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+.list-message .list-message-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.story-list { display: flex; flex-direction: column; gap: 2px; }
+
+.story {
+  display: grid;
+  grid-template-columns: 50px 1fr auto;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: 4px;
+  align-items: center;
+  transition: background 0.15s;
+}
+.story:hover { background: var(--surface2); }
+
+.story .score {
+  text-align: center;
+  font-weight: bold;
+  color: var(--orange);
+  font-size: 1rem;
+}
+/* A long unbreakable hostname or username is the one thing in a story row that
+   can push the page sideways, so the whole info column is allowed to break. */
+.story .info { min-width: 0; overflow-wrap: anywhere; }
+.story .title-row a {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 1rem;
+}
+.story .title-row a:hover { color: var(--orange); }
+.story .domain {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-left: 8px;
+  opacity: 0.6;
+}
+.story .meta {
+  font-size: 0.81rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.story .meta a { color: var(--muted); text-decoration: none; }
+.story .meta a:hover { color: var(--text); }
+.story .actions { display: flex; gap: 4px; }
+.story .actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-family: inherit;
+  white-space: nowrap;
+  position: relative;
+}
+/* Extended tap area, bounded horizontally so neighbours do not overlap (D33). */
+.story .actions button::after { content: ''; position: absolute; inset: -10px -2px; }
+.story .actions button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* Panels */
+.panel-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+}
+.panel-overlay.open { display: block; }
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 420px;
+  max-width: 90vw;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--surface);
+  border-left: 2px solid var(--border);
+  z-index: 201;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.2s;
+}
+.panel-overlay.open .panel { transform: translateX(0); }
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-header h2 { font-size: 1.15rem; }
+.panel-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  position: relative;
+  font-family: inherit;
+}
+.panel-close::after { content: ''; position: absolute; inset: -12px; }
+.panel-body { flex: 1; overflow-y: auto; padding: 16px; }
+
+.block-input {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.block-input input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  font-family: inherit;
+}
+.block-input button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-family: inherit;
+}
+
+.blocked-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-radius: 3px;
+  margin-bottom: 4px;
+  font-size: 0.88rem;
+}
+.blocked-item .blocked-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.blocked-item .blocked-name { color: var(--text); overflow-wrap: anywhere; }
+.blocked-item .blocked-meta { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
+.blocked-item button {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-family: inherit;
+  flex: none;
+  position: relative;
+}
+.blocked-item button::after { content: ''; position: absolute; inset: -14px -6px; }
+
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-tools button {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.81rem;
+  font-family: inherit;
+}
+.panel-tools button:hover { background: var(--accent); }
+.panel-tools button.icon-btn { background: transparent; padding: 4px 7px; }
+.panel-note {
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.panel-count { font-size: 0.79rem; color: var(--green); margin-bottom: 8px; }
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(120%);
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--orange);
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  z-index: 500;
+  transition: transform 0.25s, opacity 0.25s;
+  max-width: 80vw;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
+#toast.error { border-color: var(--accent); }
+/* The waiting confirm is the one toast that takes input, so it is the one
+   toast that accepts pointer events (D37). */
+#toast.confirm { pointer-events: auto; border-color: var(--green); }
+.toast-actions { display: flex; gap: 8px; flex: none; }
+/* A class that sets display beats the browser's own [hidden] rule, so the
+   confirm buttons stay on screen over an ordinary toast unless this says
+   otherwise. */
+.toast-actions[hidden] { display: none; }
+.toast-actions button {
+  background: var(--green);
+  color: #111;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.83rem;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.toast-actions button.ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+/* While the confirm owns the toast body, everything else the app wants to say
+   lands here rather than being swallowed. A refusal the user cannot see is the
+   silent no-op the rule exists to avoid. */
+.toast-note {
+  flex-basis: 100%;
+  font-size: 0.81rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.toast-note.error { color: var(--accent); }
+.story .actions button.muted { opacity: 0.55; }
+
+/* ============================================================
+   NARROW LAYOUT
+   One breakpoint for the whole app (D42). At or below 640px the
+   appbar pins three rows, plus an optional fourth behind the
+   disclosure. Above it, the desktop layout above is untouched.
+   Floor is 360px.
+   ============================================================ */
+
+@media (max-width: 640px) {
+  header {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  header h1 { display: none; }
+  header .controls {
+    order: 1;
+    width: 100%;
+    gap: 6px;
+  }
+  header .controls button {
+    flex: 1;
+    padding: 7px 4px;
+    font-size: 0.83rem;
+    white-space: nowrap;
+  }
+  .header-search {
+    order: 2;
+    flex: 1 1 100%;
+    max-width: none;
+    margin: 0;
+  }
+
+  .tabs {
+    flex-wrap: wrap;
+    padding: 0 12px;
+  }
+  .tab-btn { padding: 10px 12px; font-size: 0.85rem; }
+  .disclosure-btn { display: inline-block; }
+  .view-toggle {
+    display: none;
+    width: 100%;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+  }
+  body.disclosure-open .view-toggle { display: flex; }
+
+  main { padding: 12px; }
+  .status-bar { font-size: 0.8rem; }
+  .status-bar .counts span { margin-right: 10px; }
+
+  .story {
+    grid-template-columns: 34px 1fr;
+    gap: 8px;
+    padding: 10px;
+  }
+  .story .score { font-size: 0.92rem; }
+  .story .title-row a { font-size: 1.02rem; }
+  .story .domain { display: block; margin-left: 0; margin-top: 2px; }
+  .story .actions {
+    grid-column: 2;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  /* The 8px gap above lets each button take 4px a side without overlapping
+     its neighbour, which puts every tap target over 44px tall. */
+  .story .actions button::after { inset: -12px -4px; }
+
+  .panel { width: 100%; max-width: none; border-left: none; }
+  .panel-body { padding: 12px; }
+  .panel-tools { gap: 8px; }
+
+  #toast {
+    left: 12px;
+    right: 12px;
+    bottom: 16px;
+    max-width: none;
+    transform: translateY(140%);
+  }
+  #toast.show { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

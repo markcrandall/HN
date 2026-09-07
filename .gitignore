@@ -1,0 +1,11 @@
+# The original single-file app, kept locally as the record of what this was
+# converted from. Not part of the site.
+HN.html
+HN save for a bit.html
+HackerNews API.linq
+
+# Planning documents and their artifact sources.
+project/
+
+# The pre-conversion git history, renamed out of the way.
+git_backup/

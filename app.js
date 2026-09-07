@@ -1,0 +1,1045 @@
+"use strict";
+
+const API = 'https://hacker-news.firebaseio.com/v0';
+const HN  = 'https://news.ycombinator.com';
+
+const SITES_KEY  = 'hn_blocked_sites';
+const USERS_KEY  = 'hn_blocked_users';
+const SCHEMA_KEY = 'hn_schema';
+const TAB_KEY    = 'hn_tab';
+
+const SCHEMA_VERSION = 1;   // storage schema, shared by the blocklists and the UI state
+const EXPORT_VERSION = 1;   // export file format, kept in step with the schema
+const STORY_COUNT    = 500;
+const NARROW = window.matchMedia('(max-width: 640px)');
+
+const TAB_LABEL = { top: 'top', new: 'newest' };
+
+let currentTab = 'top';
+let stories = { top: [], new: [] };
+let showBlocked = false;
+
+/* ============================================================
+   STORAGE CORE
+   Every mutation re-reads the live value first, so a tab that has
+   been open for hours can never write a stale snapshot over blocks
+   made somewhere else. Nothing is ever held in a module-level cache.
+   ============================================================ */
+
+function readList(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('[hn] could not read ' + key, err);
+    toast('Could not read saved list (' + key + ')', true);
+    return [];
+  }
+}
+
+function writeList(key, list) {
+  try {
+    localStorage.setItem(key, JSON.stringify(list));
+    return true;
+  } catch (err) {
+    console.error('[hn] could not save ' + key, err);
+    toast('SAVE FAILED. This block was not stored. ' + (err && err.name === 'QuotaExceededError'
+      ? 'Storage is full; export a backup and remove some entries.'
+      : err.message), true);
+    return false;
+  }
+}
+
+// Read-modify-write against the current stored value.
+function mutateList(key, fn) {
+  const live = readList(key);
+  const next = fn(live.slice());
+  if (!Array.isArray(next)) return live;
+  next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  writeList(key, next);
+  return next;
+}
+
+/* ============================================================
+   UNDO
+   One global, chronological stack, held in memory only and reset on
+   launch. Every blocklist change pushes its own inverse before it
+   writes, so undo is "reverse the last thing I did" regardless of
+   which list it touched or which screen it was done from.
+   ============================================================ */
+
+const undoStack = [];
+
+function pushUndo(entry) {
+  undoStack.push(entry);
+  updateUndoButtons();
+}
+
+function updateUndoButtons() {
+  const enabled = undoStack.length > 0 && !confirmPending();
+  document.querySelectorAll('#undoBtn, .panel-tools button[data-act="undo"]').forEach(b => {
+    b.disabled = !enabled;
+  });
+}
+
+function performUndo() {
+  const entry = undoStack[undoStack.length - 1];
+  if (!entry) { toast('Nothing to undo.'); return; }
+  if (entry.kind === 'import') { askImportUndo(entry); return; }
+  applyUndo(entry);
+}
+
+function applyUndo(entry) {
+  const i = undoStack.lastIndexOf(entry);
+  if (i === -1) return;
+  undoStack.splice(i, 1);
+  entry.undo();
+  refreshAllViews();
+  updateUndoButtons();
+  toast('Undone: ' + entry.label);
+}
+
+/* Undoing an import is the one destructive undo, so it asks first (D37).
+   While it is pending the stack is frozen: blocking is refused rather than
+   allowed to reorder it under the question being asked (D48). The state is
+   cleared on every exit from the confirm, not only on confirm and cancel. */
+
+let confirmState = null;
+
+function confirmPending() { return confirmState !== null; }
+
+function askImportUndo(entry) {
+  if (confirmPending()) return;
+  confirmState = { entry: entry, timer: null };
+  updateUndoButtons();
+  confirmState.timer = setTimeout(() => endConfirm(), 60000);
+  showConfirmToast('Undo the import?', () => {
+    const pending = confirmState && confirmState.entry;
+    endConfirm();
+    if (pending) applyUndo(pending);
+  }, () => {
+    endConfirm();
+  });
+}
+
+function endConfirm() {
+  if (!confirmState) return;
+  clearTimeout(confirmState.timer);
+  confirmState = null;
+  hideConfirmToast();
+  updateUndoButtons();
+}
+
+// Every path that can change a blocklist checks this first.
+function blockingFrozen() {
+  if (!confirmPending()) return false;
+  toast('Answer the pending undo first, then block.', true);
+  return true;
+}
+
+/* ============================================================
+   HOSTNAME NORMALISATION
+   Old behaviour stored "www.reuters.com" and matched it literally,
+   so a later story on bare "reuters.com" slipped through. Everything
+   is now stored stripped of "www." and matched on the base domain
+   plus any subdomain of it.
+   ============================================================ */
+
+function normHost(input) {
+  if (!input) return '';
+  let d = String(input).trim().toLowerCase();
+  d = d.replace(/^[a-z][a-z0-9+.-]*:\/\//, '');   // tolerate a pasted URL
+  d = d.split('/')[0].split('?')[0].split('#')[0];
+  d = d.replace(/:\d+$/, '');                      // port
+  d = d.replace(/^www\d*\./, '');                  // www. / www2.
+  d = d.replace(/\.$/, '');                        // trailing dot
+  return d;
+}
+
+function normUser(input) {
+  return String(input || '').trim().toLowerCase();
+}
+
+function hostMatches(host, blockedName) {
+  const h = normHost(host);
+  const b = normHost(blockedName);
+  if (!h || !b) return false;
+  return h === b || h.endsWith('.' + b);
+}
+
+/* One shared schema version for the blocklists and the UI state. A release
+   that only changes one area leaves the other alone: its branch is a no-op.
+   Version 1 is the first schema on the hosted origin, so there is nothing to
+   convert; it only clears keys the file:// build left behind. */
+function migrateStoredLists() {
+  if (localStorage.getItem(SCHEMA_KEY) === String(SCHEMA_VERSION)) return;
+  try {
+    localStorage.removeItem('hn_blocked_schema');   // superseded by hn_schema
+    localStorage.removeItem(SITES_KEY + '_prev');   // superseded by the undo stack
+    localStorage.removeItem(USERS_KEY + '_prev');
+    localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION));
+  } catch (e) { /* a full or blocked store is not a reason to fail the launch */ }
+}
+
+/* ============================================================
+   BLOCK / UNBLOCK
+   The four functions below are the only writers of either list, so
+   they are also the only place the undo stack is fed.
+   ============================================================ */
+
+function addBlockedSite(domain, title, user) {
+  if (blockingFrozen()) return;
+  const name = normHost(domain !== undefined && domain !== null && domain !== ''
+    ? domain
+    : document.getElementById('blockSiteInput').value);
+  if (!name) return;
+  let alreadyThere = false;
+  mutateList(SITES_KEY, list => {
+    if (list.some(s => normHost(s.name) === name)) { alreadyThere = true; return list; }
+    list.push({ name, title: title || '', user: user || '', time: Date.now() });
+    return list;
+  });
+  document.getElementById('blockSiteInput').value = '';
+  if (alreadyThere) { toast(name + ' is already blocked.'); return; }
+  pushUndo({
+    label: 'blocked ' + name,
+    undo: () => mutateList(SITES_KEY, l => l.filter(s => normHost(s.name) !== name))
+  });
+  refreshAllViews();
+}
+
+function removeBlockedSite(name) {
+  if (blockingFrozen()) return;
+  const n = normHost(name);
+  let removed = [];
+  mutateList(SITES_KEY, list => {
+    removed = list.filter(s => normHost(s.name) === n);
+    return list.filter(s => normHost(s.name) !== n);
+  });
+  if (removed.length) {
+    pushUndo({
+      label: 'unblocked ' + n,
+      undo: () => mutateList(SITES_KEY, l =>
+        l.filter(s => normHost(s.name) !== n).concat(removed))
+    });
+  }
+  refreshAllViews();
+}
+
+function addBlockedUser(username, title, site) {
+  if (blockingFrozen()) return;
+  const name = normUser(username !== undefined && username !== null && username !== ''
+    ? username
+    : document.getElementById('blockUserInput').value);
+  if (!name) return;
+  let alreadyThere = false;
+  mutateList(USERS_KEY, list => {
+    if (list.some(u => normUser(u.name) === name)) { alreadyThere = true; return list; }
+    list.push({ name, title: title || '', site: site || '', time: Date.now() });
+    return list;
+  });
+  document.getElementById('blockUserInput').value = '';
+  if (alreadyThere) { toast(name + ' is already blocked.'); return; }
+  pushUndo({
+    label: 'blocked ' + name,
+    undo: () => mutateList(USERS_KEY, l => l.filter(u => normUser(u.name) !== name))
+  });
+  refreshAllViews();
+}
+
+function removeBlockedUser(name) {
+  if (blockingFrozen()) return;
+  const n = normUser(name);
+  let removed = [];
+  mutateList(USERS_KEY, list => {
+    removed = list.filter(u => normUser(u.name) === n);
+    return list.filter(u => normUser(u.name) !== n);
+  });
+  if (removed.length) {
+    pushUndo({
+      label: 'unblocked ' + n,
+      undo: () => mutateList(USERS_KEY, l =>
+        l.filter(u => normUser(u.name) !== n).concat(removed))
+    });
+  }
+  refreshAllViews();
+}
+
+/* ============================================================
+   FILTERING
+   ============================================================ */
+
+function isSiteBlocked(domain) {
+  if (!domain) return false;
+  return readList(SITES_KEY).some(s => hostMatches(domain, s.name));
+}
+
+function isUserBlocked(user) {
+  if (!user) return false;
+  const u = normUser(user);
+  return readList(USERS_KEY).some(x => normUser(x.name) === u);
+}
+
+function isStoryBlocked(story) {
+  return isSiteBlocked(story.domain) || isUserBlocked(story.user);
+}
+
+/* ============================================================
+   API
+   ============================================================ */
+
+async function fetchJson(url, signal) {
+  const res = await fetch(url, { signal: signal });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+// Bounded concurrency. 500 simultaneous requests used to drop items silently.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      try { out[i] = await fn(items[i]); } catch (e) { out[i] = null; }
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+async function fetchStories(type, count, signal) {
+  const endpoint = type === 'top' ? 'topstories.json' : 'newstories.json';
+  const ids = await fetchJson(API + '/' + endpoint, signal);
+  const items = await mapLimit(ids.slice(0, count), 12, id => fetchJson(API + '/item/' + id + '.json', signal));
+  if (signal && signal.aborted) throw abortError();
+  return items.filter(Boolean).map(item => {
+    let domain = null;
+    if (item.url) { try { domain = new URL(item.url).hostname; } catch (e) { domain = null; } }
+    return {
+      id: item.id,
+      title: item.title || '',
+      url: item.url || '',
+      domain: domain,
+      user: item.by || '',
+      score: item.score || 0,
+      comments: item.descendants || 0,
+      time: (item.time || 0) * 1000,
+      hnLink: HN + '/item?id=' + item.id
+    };
+  });
+}
+
+function abortError() {
+  const e = new Error('aborted');
+  e.name = 'AbortError';
+  return e;
+}
+
+/* ============================================================
+   RENDERING (DOM built as nodes, so there is no string escaping to get wrong)
+   ============================================================ */
+
+function el(tag, props, children) {
+  const node = document.createElement(tag);
+  if (props) {
+    for (const k in props) {
+      if (k === 'class') node.className = props[k];
+      else if (k === 'text') node.textContent = props[k];
+      else if (k.startsWith('data-')) node.setAttribute(k, props[k]);
+      else node[k] = props[k];
+    }
+  }
+  (children || []).forEach(c => { if (c) node.appendChild(c); });
+  return node;
+}
+
+function actionButton(label, title, action, payload) {
+  const b = el('button', { text: label, title: title, type: 'button' });
+  b.setAttribute('data-action', action);
+  b.setAttribute('data-name', payload.name || '');
+  b.setAttribute('data-title', payload.title || '');
+  b.setAttribute('data-extra', payload.extra || '');
+  return b;
+}
+
+function storyRow(s) {
+  const info = el('div', { class: 'info' });
+
+  const titleRow = el('div', { class: 'title-row' }, [
+    el('a', { href: s.url || s.hnLink, target: '_blank', rel: 'noopener noreferrer', text: s.title })
+  ]);
+  if (s.domain) {
+    const wrap = el('span', { class: 'domain' });
+    wrap.appendChild(document.createTextNode('('));
+    wrap.appendChild(el('a', { href: 'https://' + s.domain, target: '_blank', rel: 'noopener noreferrer', text: s.domain }));
+    wrap.appendChild(document.createTextNode(')'));
+    titleRow.appendChild(wrap);
+  }
+  info.appendChild(titleRow);
+
+  const meta = el('div', { class: 'meta' });
+  meta.appendChild(el('a', { href: HN + '/user?id=' + encodeURIComponent(s.user), target: '_blank', rel: 'noopener noreferrer', text: s.user }));
+  meta.appendChild(document.createTextNode(' · ' + timeAgo(s.time) + ' · '));
+  meta.appendChild(el('a', { href: s.hnLink, target: '_blank', rel: 'noopener noreferrer', text: s.comments + ' comments' }));
+  info.appendChild(meta);
+
+  const actions = el('div', { class: 'actions' });
+  if (showBlocked) {
+    if (isSiteBlocked(s.domain)) {
+      const matched = matchingSiteRule(s.domain);
+      actions.appendChild(actionButton('unblock ' + matched, 'Unblock ' + matched, 'unblock-site', { name: matched }));
+    }
+    if (isUserBlocked(s.user)) {
+      actions.appendChild(actionButton('unblock user', 'Unblock ' + s.user, 'unblock-user', { name: s.user }));
+    }
+  } else {
+    if (s.user) actions.appendChild(actionButton('block user', 'Block ' + s.user, 'block-user', { name: s.user, title: s.title, extra: s.domain || 'self' }));
+    if (s.domain) actions.appendChild(actionButton('block site', 'Block ' + normHost(s.domain) + ' and its subdomains', 'block-site', { name: s.domain, title: s.title, extra: s.user }));
+  }
+
+  return el('div', { class: 'story' }, [
+    el('div', { class: 'score', text: String(s.score) }),
+    info,
+    actions
+  ]);
+}
+
+// Which stored rule caused this domain to be hidden (so "unblock" removes the right one).
+function matchingSiteRule(domain) {
+  const hit = readList(SITES_KEY).find(s => hostMatches(domain, s.name));
+  return hit ? normHost(hit.name) : normHost(domain);
+}
+
+function renderStories() {
+  const container = document.getElementById('storyList');
+  const list = stories[currentTab] || [];
+  const query = document.getElementById('searchInput').value.trim().toLowerCase();
+
+  const frag = document.createDocumentFragment();
+  for (const s of list) {
+    const blocked = isStoryBlocked(s);
+    if (showBlocked ? !blocked : blocked) continue;
+    if (query) {
+      const hay = (s.title + ' ' + (s.domain || '') + ' ' + s.user).toLowerCase();
+      if (!hay.includes(query)) continue;
+    }
+    frag.appendChild(storyRow(s));
+  }
+  container.innerHTML = '';
+  container.appendChild(frag);
+}
+
+function renderBlockedList(containerId, key, action) {
+  const container = document.getElementById(containerId);
+  const list = readList(key);
+  const frag = document.createDocumentFragment();
+  list.forEach(item => {
+    const info = el('div', { class: 'blocked-info' }, [
+      el('span', { class: 'blocked-name', text: item.name })
+    ]);
+    if (item.title) {
+      const secondary = key === SITES_KEY ? (item.user || '') : (item.site || 'self');
+      info.appendChild(el('span', { class: 'blocked-meta', text: item.title + (secondary ? ' · ' + secondary : '') }));
+    }
+    const rm = el('button', { text: '×', title: 'Unblock ' + item.name, type: 'button' });
+    rm.setAttribute('data-action', action);
+    rm.setAttribute('data-name', item.name);
+    frag.appendChild(el('div', { class: 'blocked-item' }, [info, rm]));
+  });
+  container.innerHTML = '';
+  container.appendChild(frag);
+}
+
+function renderBlockedSites() {
+  renderBlockedList('blockedSitesList', SITES_KEY, 'unblock-site');
+  document.getElementById('sitesCount').textContent = plural(readList(SITES_KEY).length, 'site') + ' blocked';
+}
+
+function renderBlockedUsers() {
+  renderBlockedList('blockedUsersList', USERS_KEY, 'unblock-user');
+  document.getElementById('usersCount').textContent = plural(readList(USERS_KEY).length, 'user') + ' blocked';
+}
+
+function updateCounts() {
+  const list = stories[currentTab] || [];
+  const blockedCount = list.filter(isStoryBlocked).length;
+  const visibleCount = list.length - blockedCount;
+
+  if (showBlocked) {
+    document.getElementById('storyCount').textContent = plural(blockedCount, 'blocked story', 'blocked stories');
+    document.getElementById('hiddenCount').textContent = visibleCount + ' unblocked';
+  } else {
+    document.getElementById('storyCount').textContent = plural(visibleCount, 'story', 'stories');
+    document.getElementById('hiddenCount').textContent = blockedCount + ' hidden';
+  }
+  const badge = document.getElementById('blockedBadge');
+  if (badge) badge.textContent = blockedCount;
+}
+
+function refreshAllViews() {
+  renderBlockedSites();
+  renderBlockedUsers();
+  renderStories();
+  updateCounts();
+}
+
+function toggleBlockedView() {
+  showBlocked = !showBlocked;
+  document.body.classList.toggle('blocked-view', showBlocked);
+  const btn = document.getElementById('viewToggleBtn');
+  btn.innerHTML = showBlocked
+    ? 'Show Stories'
+    : 'Show Blocked <span class="badge" id="blockedBadge">0</span>';
+  renderStories();
+  updateCounts();
+}
+
+/* ============================================================
+   THE FETCH CONTROLLER
+   Three states, one pure transition function, one commit point.
+   Nothing fetches on its own except the first load and a single
+   retry when the connection comes back: every other fetch is a tap.
+
+   "Failed" is a statement about the last request, not about the
+   device. navigator.onLine reports link-layer connectivity and is
+   wrong in both directions, so it guards nothing here; the online
+   event is used once, as a trigger to leave Failed.
+   ============================================================ */
+
+const IDLE = 'Idle', FETCHING = 'Fetching', FAILED = 'Failed';
+let fetchState = IDLE;
+
+function fetchTransition(state, event) {
+  switch (event) {
+    case 'refresh':
+    case 'switch-empty':
+      return { next: FETCHING, abort: state === FETCHING, start: true };
+    case 'switch-has':
+      return { next: state };
+    case 'online':
+      return state === FAILED ? { next: FETCHING, start: true } : { next: state };
+    case 'panel-open':
+      return state === FETCHING ? { next: IDLE, abort: true } : { next: state };
+    case 'landed':
+      return state === FETCHING ? { next: IDLE, render: true } : { next: state };
+    case 'failed-cold':
+      return state === FETCHING ? { next: FAILED, coldMessage: true } : { next: state };
+    case 'failed-warm':
+      return state === FETCHING ? { next: IDLE, warmToast: true } : { next: state };
+    default:
+      return { next: state };
+  }
+}
+
+function dispatchFetch(event, payload) {
+  const p = payload || {};
+  const t = fetchTransition(fetchState, event);
+  fetchState = t.next;                      // the single place the state is written
+  if (t.abort) abortFetch();
+  if (t.start) startFetch(p.tab || currentTab);
+  if (t.render) {
+    hideListMessage();
+    report('Loaded ' + plural((stories[p.tab] || []).length, 'story', 'stories'));
+    setTimeout(() => { if (fetchState === IDLE) report(''); }, 3000);
+    renderStories();
+    updateCounts();
+  }
+  if (t.coldMessage) {
+    report('');
+    showListMessage();
+    renderStories();
+    updateCounts();
+  }
+  if (t.warmToast) {
+    report('');
+    hideListMessage();          // there is content on screen, so nothing is stranded
+    toast('Could not reach Hacker News. Showing the stories already loaded.', true);
+  }
+}
+
+let fetchToken = 0;
+let fetchController = null;
+
+function startFetch(tab) {
+  const token = ++fetchToken;
+  const controller = new AbortController();
+  fetchController = controller;
+  hideListMessage();
+  report('Loading ' + (TAB_LABEL[tab] || tab) + ' stories...');
+  fetchStories(tab, STORY_COUNT, controller.signal).then(items => {
+    if (token !== fetchToken) return;       // a newer request has taken over
+    stories[tab] = items;
+    dispatchFetch('landed', { tab: tab });
+  }).catch(err => {
+    if (token !== fetchToken) return;
+    if (err && err.name === 'AbortError') return;
+    console.error('[hn] fetch failed', err);
+    dispatchFetch(stories[tab].length ? 'failed-warm' : 'failed-cold', { tab: tab });
+  });
+}
+
+function abortFetch() {
+  fetchToken++;                             // anything still in flight is now stale
+  if (fetchController) { fetchController.abort(); fetchController = null; }
+  report('');
+}
+
+// One shot per reconnect. A flaky connection cannot loop this at 501 requests
+// a time: the machine only acts from Failed, and the debounce covers the burst
+// of online events a single reconnect can produce.
+let lastReconnectAt = 0;
+window.addEventListener('online', () => {
+  const now = Date.now();
+  if (now - lastReconnectAt < 5000) return;
+  lastReconnectAt = now;
+  dispatchFetch('online', { tab: currentTab });
+});
+
+function showListMessage() {
+  const box = document.getElementById('listMessage');
+  box.textContent = '';
+  box.appendChild(document.createTextNode('Could not reach Hacker News.'));
+  box.appendChild(el('span', {
+    class: 'list-message-hint',
+    text: 'Nothing has loaded yet. Tap Refresh to try again.'
+  }));
+  box.hidden = false;
+}
+
+function hideListMessage() {
+  document.getElementById('listMessage').hidden = true;
+}
+
+// Inline on desktop, through the toast on narrow screens, where the status bar
+// scrolls away from a Refresh button that is pinned.
+function report(msg) {
+  const inline = document.getElementById('loading');
+  if (!NARROW.matches) { inline.textContent = msg; return; }
+  inline.textContent = '';
+  if (confirmPending()) return;             // never talk over a waiting question
+  if (msg) toast(msg);
+  else hideToast();
+}
+
+/* ============================================================
+   TABS
+   ============================================================ */
+
+function switchTab(tab) {
+  currentTab = tab;
+  try { localStorage.setItem(TAB_KEY, tab); } catch (e) {}
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  clearSearch();
+  renderStories();
+  updateCounts();
+  dispatchFetch(stories[tab].length === 0 ? 'switch-empty' : 'switch-has', { tab: tab });
+}
+
+function refreshAll() { dispatchFetch('refresh', { tab: currentTab }); }
+
+/* ============================================================
+   THE LAYER STACK
+   The disclosure row and the two panels are layers of one machine,
+   not two mechanisms. The invariant: exactly one history entry
+   exists if and only if some layer is open, so Android back pops
+   the topmost layer before it exits the app.
+
+   Every close path routes through history.back(), which makes
+   popstate the single place a layer actually closes. Swapping one
+   layer for another replaces the entry rather than pushing a second,
+   which keeps the invariant without a back-then-push race.
+   ============================================================ */
+
+let layer = null;              // null | 'disclosure' | 'blockedSites' | 'blockedUsers'
+let closePending = false;
+let pendingOpen = null;
+let lastFocused = null;
+
+function openLayer(name) {
+  if (layer === name) return;
+  if (closePending) { pendingOpen = name; return; }
+  if (layer) {
+    applyLayerClosed(layer);
+    layer = name;
+    applyLayerOpen(name);
+    history.replaceState({ hnLayer: name }, '');
+  } else {
+    layer = name;
+    applyLayerOpen(name);
+    history.pushState({ hnLayer: name }, '');
+  }
+}
+
+function closeLayer() {
+  if (!layer || closePending) return;
+  closePending = true;
+  history.back();
+}
+
+window.addEventListener('popstate', () => {
+  closePending = false;
+  if (layer) {
+    applyLayerClosed(layer);
+    layer = null;
+  }
+  if (pendingOpen) {
+    const next = pendingOpen;
+    pendingOpen = null;
+    openLayer(next);
+  }
+});
+
+function applyLayerOpen(name) {
+  if (name === 'disclosure') {
+    document.body.classList.add('disclosure-open');
+    document.getElementById('disclosureBtn').setAttribute('aria-expanded', 'true');
+    return;
+  }
+  lastFocused = document.activeElement;
+  // Belt and suspenders on the one-panel invariant: close any other panel
+  // outright, and trap focus so the header behind the overlay is unreachable.
+  document.querySelectorAll('.panel-overlay.open').forEach(p => p.classList.remove('open'));
+  const overlay = document.getElementById(name + 'Panel');
+  overlay.classList.add('open');
+  if (name === 'blockedSites') renderBlockedSites();
+  if (name === 'blockedUsers') renderBlockedUsers();
+  updateUndoButtons();
+  dispatchFetch('panel-open');
+  const close = overlay.querySelector('.panel-close');
+  if (close) close.focus();
+}
+
+function applyLayerClosed(name) {
+  if (name === 'disclosure') {
+    document.body.classList.remove('disclosure-open');
+    document.getElementById('disclosureBtn').setAttribute('aria-expanded', 'false');
+    return;
+  }
+  document.getElementById(name + 'Panel').classList.remove('open');
+  if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+  lastFocused = null;
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+
+function trapFocus(e) {
+  if (e.key !== 'Tab') return;
+  const panel = document.querySelector('.panel-overlay.open .panel');
+  if (!panel) return;
+  const items = Array.from(panel.querySelectorAll(FOCUSABLE)).filter(n => n.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  else if (!panel.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+}
+
+/* ============================================================
+   BACKUP / RESTORE
+   Storage belongs to this origin and this browser profile. It
+   survives launches, updates and moving the files around the site,
+   but not clearing "Cookies and other site data", not a different
+   browser, and not a different device. Export is what crosses those.
+   ============================================================ */
+
+function exportBlocks() {
+  const data = {
+    format: 'hn-tracker-blocklist',
+    version: EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    sites: readList(SITES_KEY),
+    users: readList(USERS_KEY)
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: 'hn-blocklist-' + new Date().toISOString().slice(0, 10) + '.json' });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('Exported ' + plural(data.sites.length, 'site') + ' and ' + plural(data.users.length, 'user') + '.');
+}
+
+function importBlocks(file) {
+  if (blockingFrozen()) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try { data = JSON.parse(reader.result); }
+    catch (err) { toast('Import failed: not valid JSON.', true); return; }
+
+    if (data.format !== 'hn-tracker-blocklist' || data.version !== EXPORT_VERSION) {
+      toast('Import failed: this file is version ' + (data.version === undefined ? 'unknown' : data.version) +
+        ', and this app reads version ' + EXPORT_VERSION + '. Nothing was merged.', true);
+      return;
+    }
+
+    const addedSites = [], addedUsers = [];
+
+    mutateList(SITES_KEY, list => {
+      const have = new Set(list.map(s => normHost(s.name)));
+      (data.sites || []).forEach(s => {
+        const n = normHost(s && s.name);
+        if (!n || have.has(n)) return;
+        have.add(n);
+        list.push({ name: n, title: s.title || '', user: s.user || '', time: s.time || Date.now() });
+        addedSites.push(n);
+      });
+      return list;
+    });
+
+    mutateList(USERS_KEY, list => {
+      const have = new Set(list.map(u => normUser(u.name)));
+      (data.users || []).forEach(u => {
+        const n = normUser(u && u.name);
+        if (!n || have.has(n)) return;
+        have.add(n);
+        list.push({ name: n, title: u.title || '', site: u.site || '', time: u.time || Date.now() });
+        addedUsers.push(n);
+      });
+      return list;
+    });
+
+    if (addedSites.length || addedUsers.length) {
+      const siteSet = new Set(addedSites), userSet = new Set(addedUsers);
+      pushUndo({
+        kind: 'import',
+        label: 'import of ' + plural(addedSites.length, 'site') + ' and ' + plural(addedUsers.length, 'user'),
+        undo: () => {
+          mutateList(SITES_KEY, l => l.filter(s => !siteSet.has(normHost(s.name))));
+          mutateList(USERS_KEY, l => l.filter(u => !userSet.has(normUser(u.name))));
+        }
+      });
+    }
+
+    refreshAllViews();
+    toast('Merged in ' + plural(addedSites.length, 'new site') + ' and ' + plural(addedUsers.length, 'new user') + '.');
+  };
+  reader.onerror = () => toast('Could not read that file.', true);
+  reader.readAsText(file);
+}
+
+/* ============================================================
+   CROSS-TAB SYNC
+   Fires in every OTHER tab when this one writes, so a second window
+   never shows, or saves from, a stale list.
+   ============================================================ */
+
+window.addEventListener('storage', e => {
+  if (e.key === null || e.key === SITES_KEY || e.key === USERS_KEY) {
+    refreshAllViews();
+  }
+});
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+
+let toastTimer = null;
+let noteTimer = null;
+
+function toast(msg, isError) {
+  // The waiting question owns the toast body, so anything else the app has to
+  // say goes underneath it. Dropping the message would make a refused block
+  // look like a button that does nothing.
+  if (confirmPending()) { showToastNote(msg, isError); return; }
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  document.getElementById('toastActions').hidden = true;
+  t.classList.remove('confirm');
+  t.classList.toggle('error', !!isError);
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), isError ? 7000 : 3500);
+}
+
+function hideToast() {
+  if (confirmPending()) return;
+  clearTimeout(toastTimer);
+  document.getElementById('toast').classList.remove('show');
+}
+
+function showToastNote(msg, isError) {
+  const n = document.getElementById('toastNote');
+  n.textContent = msg;
+  n.classList.toggle('error', !!isError);
+  n.hidden = false;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { n.hidden = true; }, 5000);
+}
+
+function hideToastNote() {
+  clearTimeout(noteTimer);
+  const n = document.getElementById('toastNote');
+  n.hidden = true;
+  n.textContent = '';
+}
+
+function showConfirmToast(msg, onConfirm, onCancel) {
+  const t = document.getElementById('toast');
+  clearTimeout(toastTimer);
+  hideToastNote();
+  document.getElementById('toastMsg').textContent = msg;
+  document.getElementById('toastActions').hidden = false;
+  t.classList.remove('error');
+  t.classList.add('confirm', 'show');
+  const yes = document.getElementById('toastConfirm');
+  const no  = document.getElementById('toastCancel');
+  yes.onclick = onConfirm;
+  no.onclick = onCancel;
+  yes.focus();
+}
+
+function hideConfirmToast() {
+  const t = document.getElementById('toast');
+  hideToastNote();
+  document.getElementById('toastActions').hidden = true;
+  t.classList.remove('confirm', 'show');
+  document.getElementById('toastConfirm').onclick = null;
+  document.getElementById('toastCancel').onclick = null;
+}
+
+function plural(n, one, many) {
+  return n + ' ' + (n === 1 ? one : (many || one + 's'));
+}
+
+function timeAgo(ts) {
+  const seconds = Math.floor((Date.now() - ts) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + 'm ago';
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + 'h ago';
+  return Math.floor(hours / 24) + 'd ago';
+}
+
+function onSearchInput() {
+  const input = document.getElementById('searchInput');
+  document.getElementById('searchClear').classList.toggle('visible', input.value.length > 0);
+  renderStories();
+}
+
+function clearSearch() {
+  const input = document.getElementById('searchInput');
+  input.value = '';
+  document.getElementById('searchClear').classList.remove('visible');
+  renderStories();
+}
+
+/* ============================================================
+   WIRING
+   ============================================================ */
+
+document.getElementById('btnRefresh').addEventListener('click', refreshAll);
+document.getElementById('btnSites').addEventListener('click', () => openLayer('blockedSites'));
+document.getElementById('btnUsers').addEventListener('click', () => openLayer('blockedUsers'));
+document.getElementById('viewToggleBtn').addEventListener('click', toggleBlockedView);
+document.getElementById('undoBtn').addEventListener('click', performUndo);
+document.getElementById('searchInput').addEventListener('input', onSearchInput);
+document.getElementById('searchClear').addEventListener('click', () => { clearSearch(); document.getElementById('searchInput').focus(); });
+document.getElementById('blockSiteBtn').addEventListener('click', () => addBlockedSite());
+document.getElementById('blockUserBtn').addEventListener('click', () => addBlockedUser());
+document.getElementById('blockSiteInput').addEventListener('keydown', e => { if (e.key === 'Enter') addBlockedSite(); });
+document.getElementById('blockUserInput').addEventListener('keydown', e => { if (e.key === 'Enter') addBlockedUser(); });
+
+document.getElementById('disclosureBtn').addEventListener('click', () => {
+  if (layer === 'disclosure') closeLayer();
+  else openLayer('disclosure');
+});
+
+document.querySelectorAll('.tab-btn').forEach(b => {
+  b.addEventListener('click', () => switchTab(b.dataset.tab));
+});
+
+document.querySelectorAll('.panel-close').forEach(b => {
+  b.addEventListener('click', closeLayer);
+});
+
+document.querySelectorAll('.panel-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeLayer(); });
+});
+
+// Export / import / undo. The undo button is no longer bound to a list: one
+// global stack means both panels and the tabs row dispatch the same action.
+document.querySelectorAll('.panel-tools').forEach(tools => {
+  tools.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const act = btn.getAttribute('data-act');
+    if (act === 'export') exportBlocks();
+    if (act === 'import') document.getElementById('importFile').click();
+    if (act === 'undo') performUndo();
+  });
+});
+
+document.getElementById('importFile').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) importBlocks(f);
+  e.target.value = '';
+});
+
+// One delegated handler for every block / unblock button in the app. The two
+// checks above the early return need every click, not only the ones on a
+// block button: the disclosure collapses on any tap outside itself (and never
+// on a scroll), and blocking is refused while an undo is waiting for an answer.
+document.addEventListener('click', e => {
+  if (layer === 'disclosure'
+      && !e.target.closest('#disclosureBtn, #viewToggle')
+      && !e.target.closest('#btnSites, #btnUsers')) {   // those swap the layer themselves
+    closeLayer();
+  }
+
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  if (blockingFrozen()) return;
+  const action = btn.getAttribute('data-action');
+  const name = btn.getAttribute('data-name');
+  const title = btn.getAttribute('data-title') || '';
+  const extra = btn.getAttribute('data-extra') || '';
+  if (action === 'block-site')   addBlockedSite(name, title, extra);
+  if (action === 'block-user')   addBlockedUser(name, title, extra);
+  if (action === 'unblock-site') removeBlockedSite(name);
+  if (action === 'unblock-user') removeBlockedUser(name);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && layer) { closeLayer(); return; }
+  trapFocus(e);
+});
+
+/* ============================================================
+   SERVICE WORKER
+   The worker precaches the shell and revalidates it on every launch,
+   so a push reaches everyone without a version constant anyone has
+   to remember to bump. A new version installs quietly and takes
+   effect the next time the app is opened.
+   ============================================================ */
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(() => {
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'revalidate' });
+      }
+    }).catch(err => console.error('[hn] service worker failed to register', err));
+  });
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+
+migrateStoredLists();
+
+let savedTab = null;
+try { savedTab = localStorage.getItem(TAB_KEY); } catch (e) {}
+if (savedTab !== 'top' && savedTab !== 'new') savedTab = 'top';
+currentTab = savedTab;
+document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
+
+updateUndoButtons();
+refreshAllViews();
+dispatchFetch('switch-empty', { tab: currentTab });

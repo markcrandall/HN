@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="HN Tracker">
+  <!-- The lettermark is drawn as geometry, not type, so it renders identically
+       everywhere and does not depend on a font being available. It sits inside
+       a radius of 40 from the centre, which is the maskable safe zone. -->
+  <rect width="100" height="100" fill="#1a1a2e"/>
+  <g fill="#ff6600">
+    <!-- H -->
+    <rect x="19" y="32" width="9" height="36"/>
+    <rect x="37" y="32" width="9" height="36"/>
+    <rect x="19" y="45.5" width="27" height="9"/>
+    <!-- N -->
+    <rect x="54" y="32" width="9" height="36"/>
+    <rect x="72" y="32" width="9" height="36"/>
+    <polygon points="54,32 63,32 81,68 72,68"/>
+  </g>
+</svg>
