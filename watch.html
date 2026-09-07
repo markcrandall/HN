@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Watch</title>
+<meta name="theme-color" content="#16213e">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="watch-page">
+
+<div class="watch-bar">
+  <a class="watch-back" href="./">Back to HN Tracker</a>
+  <a class="watch-out" id="watchOut" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer">Open on YouTube</a>
+</div>
+
+<div class="watch-stage" id="watchStage"></div>
+
+<script>
+"use strict";
+(function () {
+  // The player has to sit in an iframe. YouTube refuses an embed loaded as a
+  // top level navigation with "Video player configuration error, Error 153",
+  // so this page exists purely to be the embedding page.
+  var params = new URLSearchParams(location.search);
+  var id = params.get('v') || '';
+  var start = parseInt(params.get('t') || '0', 10);
+  var stage = document.getElementById('watchStage');
+
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) {
+    document.getElementById('watchOut').hidden = true;   // nothing to open
+    var p = document.createElement('p');
+    p.className = 'watch-message';
+    p.textContent = 'No video was named in this link.';
+    stage.appendChild(p);
+    return;
+  }
+
+  document.getElementById('watchOut').href =
+    'https://www.youtube.com/watch?v=' + id + (start > 0 ? '&t=' + start + 's' : '');
+
+  var frame = document.createElement('iframe');
+  frame.src = 'https://www.youtube-nocookie.com/embed/' + id + (start > 0 ? '?start=' + start : '');
+  frame.title = 'Video player';
+  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+  frame.allowFullscreen = true;
+  frame.setAttribute('frameborder', '0');
+  stage.appendChild(frame);
+}());
+</script>
+
+</body>
+</html>

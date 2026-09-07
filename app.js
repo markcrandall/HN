@@ -74,7 +74,8 @@ function mutateList(key, fn) {
    ============================================================ */
 
 const SETTING_DEFAULTS = {
-  xcancel: false          // open x.com story links through xcancel.com
+  xcancel: false,         // open x.com and twitter.com story links through xcancel.com
+  ytEmbed: false          // open YouTube story links as a bare nocookie embed
 };
 
 function readSettings() {
@@ -117,19 +118,63 @@ function renderSettings() {
    the saved list keeps the canonical URL and turning the setting off puts every
    link back where it was. */
 const XCANCEL_FOR = ['x.com', 'twitter.com'];
+const YOUTUBE_FOR = ['youtube.com', 'youtu.be'];
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+function xcancelUrl(u) {
+  if (!XCANCEL_FOR.some(host => hostMatches(u.hostname, host))) return null;
+  u.protocol = 'https:';
+  u.hostname = 'xcancel.com';
+  return u.toString();
+}
+
+// "90", "90s", "1h2m3s" and "2m30s" all appear in the wild.
+function startSeconds(value) {
+  if (!value) return 0;
+  const plain = /^\d+s?$/.exec(value);
+  if (plain) return parseInt(value, 10);
+  const parts = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(value);
+  if (!parts || !parts[0]) return 0;
+  return (+(parts[1] || 0)) * 3600 + (+(parts[2] || 0)) * 60 + (+(parts[3] || 0));
+}
+
+/* Returns null unless a single video can be identified with certainty. A
+   playlist, a channel or a search has nothing to embed, and a link that cannot
+   be parsed is left exactly as it was rather than guessed at. */
+function youtubeEmbedUrl(u) {
+  if (!YOUTUBE_FOR.some(host => hostMatches(u.hostname, host))) return null;
+
+  let id = null;
+  if (hostMatches(u.hostname, 'youtu.be')) {
+    id = u.pathname.split('/')[1];
+  } else {
+    const seg = u.pathname.split('/').filter(Boolean);
+    if (seg[0] === 'watch') id = u.searchParams.get('v');
+    else if (seg[0] === 'shorts' || seg[0] === 'live' || seg[0] === 'embed') id = seg[1];
+  }
+  if (!id || !VIDEO_ID.test(id)) return null;
+
+  // Points at this app's own watch page, not straight at the embed. YouTube
+  // refuses an embed loaded as a top level navigation (Error 153), so the
+  // player needs a page on this origin to sit inside.
+  const start = startSeconds(u.searchParams.get('t') || u.searchParams.get('start'));
+  return 'watch.html?v=' + id + (start ? '&t=' + start : '');
+}
 
 function linkUrl(s) {
   const raw = s.url || s.hnLink;
-  if (!getSetting('xcancel')) return raw;
-  try {
-    const u = new URL(raw);
-    if (!XCANCEL_FOR.some(host => hostMatches(u.hostname, host))) return raw;
-    u.protocol = 'https:';
-    u.hostname = 'xcancel.com';
-    return u.toString();
-  } catch (err) {
-    return raw;
+  let u;
+  try { u = new URL(raw); } catch (err) { return raw; }
+
+  if (getSetting('xcancel')) {
+    const swapped = xcancelUrl(new URL(raw));
+    if (swapped) return swapped;
   }
+  if (getSetting('ytEmbed')) {
+    const embed = youtubeEmbedUrl(u);
+    if (embed) return embed;
+  }
+  return raw;
 }
 
 /* ============================================================

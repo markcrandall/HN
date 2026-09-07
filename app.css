@@ -606,6 +606,53 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
   #toast.show { transform: translateY(0); }
 }
 
+/* ============================================================
+   WATCH PAGE
+   One video and nothing else. It exists because YouTube's embed
+   player will not run as a top level navigation, so something on
+   this origin has to be the embedding page.
+   ============================================================ */
+
+.watch-page { background: var(--bg); }
+.watch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border-bottom: 2px solid var(--orange);
+  padding: 12px 20px;
+  font-size: 0.88rem;
+}
+.watch-bar a { color: var(--text); text-decoration: none; }
+.watch-bar a:hover { color: var(--orange); }
+.watch-bar .watch-out { color: var(--muted); }
+.watch-stage {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 20px;
+}
+.watch-stage iframe {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 4px;
+  background: #000;
+}
+.watch-message {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 16px 18px;
+}
+
+@media (max-width: 640px) {
+  .watch-bar { padding: 10px 12px; }
+  .watch-stage { padding: 12px; }
+}
+
 /* Below the 360px floor the third tab pushes the disclosure onto its own line.
    Tightening the tabs row is enough to keep it to one, and it changes nothing
    at or above 400px. */

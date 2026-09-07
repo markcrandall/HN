@@ -16,6 +16,7 @@ const CACHE = 'hn-shell';
 const SHELL = [
   './',
   './index.html',
+  './watch.html',
   './app.css',
   './app.js',
   './manifest.json',
@@ -54,9 +55,14 @@ self.addEventListener('fetch', event => {
   // asset links then resolve against the wrong directory and 404.
   if (request.mode === 'navigate') {
     const root = new URL('./', self.location).pathname;
-    if (url.pathname === root || url.pathname === root + 'index.html') {
+    const page = url.pathname === root ? './index.html'
+      : url.pathname === root + 'index.html' ? './index.html'
+      : url.pathname === root + 'watch.html' ? './watch.html'
+      : null;
+    if (page) {
       event.respondWith((async () => {
-        const cached = await caches.match('./index.html');
+        // The query string names the video, so match on the path alone.
+        const cached = await caches.match(page);
         return cached || fetch(request);
       })());
     }

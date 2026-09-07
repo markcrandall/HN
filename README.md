@@ -50,6 +50,18 @@ when a link is drawn, not when a story is stored, so the row still shows the
 site the story came from, blocking still matches on the original site, and
 turning the setting off puts every link back.
 
+**Open YouTube links as a plain embed.** A YouTube link opens `watch.html` in
+this app, holding just the video played through `youtube-nocookie.com`: no
+sidebar, no recommendations, and no tracking cookies until you press play. There
+is no description and no comments, and every page carries an **Open on YouTube**
+link for when you want them. Where a creator has turned embedding off, the
+player says so and offers the same way out. Playlist, channel and search links
+are left alone.
+
+The page exists because YouTube refuses to run its embed player as a top level
+navigation, answering with "Error 153". The player has to sit in an iframe on a
+page of our own, so linking straight to the embed URL does not work.
+
 Settings live in this browser and are not part of the backup, because importing
 someone else's file should merge your lists, not change your preferences.
 
@@ -68,6 +80,7 @@ Plain static files, no build step.
 | File | What it is |
 | --- | --- |
 | `index.html` | Markup |
+| `watch.html` | The single-video page the YouTube setting links to |
 | `app.css` | All styles, one breakpoint at 640px |
 | `app.js` | All behaviour |
 | `sw.js` | Service worker: precaches the shell, revalidates it each launch |
