@@ -26,6 +26,12 @@
     <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="29.5 11.8 5.9 0"></circle>
     <polygon points="13.62 3.02 19.28 4.72 15.32 8.68" fill="currentColor" stroke="none"></polygon>
   </symbol>
+  <symbol id="icon-gear" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+    <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
+    <path d="M19 12H21.5 M16.95 16.95L18.72 18.72 M12 19V21.5 M7.05 16.95L5.28 18.72 M5 12H2.5 M7.05 7.05L5.28 5.28 M12 5V2.5 M16.95 7.05L18.72 5.28"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+  </symbol>
 </svg>
 
 <div class="appbar">
@@ -85,6 +91,9 @@
         <button data-act="undo" class="icon-btn warn" type="button" title="Undo last change" aria-label="Undo last change" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>
         </button>
+        <button data-act="settings" class="icon-btn" type="button" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-gear"></use></svg>
+        </button>
       </div>
       <div class="panel-note">
         Blocking <b>reuters.com</b> also blocks <b>www.reuters.com</b> and any subdomain.
@@ -124,6 +133,27 @@
         <button id="blockUserBtn" type="button">Block</button>
       </div>
       <div id="blockedUsersList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Panel -->
+<div class="panel-overlay" id="settingsPanel">
+  <div class="panel" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="panel-header">
+      <h2>Settings</h2>
+      <button class="panel-close" data-close="settings" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <label class="setting-row" for="setXcancel">
+        <input type="checkbox" id="setXcancel" data-setting="xcancel">
+        <span class="setting-label">Use xcancel to open x.com sites</span>
+      </label>
+      <p class="setting-note">
+        Story links on <b>x.com</b>, and on any subdomain of it, open through
+        <b>xcancel.com</b> instead. Only the link changes: the row still shows the site the
+        story came from, and blocking still matches on x.com.
+      </p>
     </div>
   </div>
 </div>

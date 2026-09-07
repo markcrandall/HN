@@ -430,6 +430,32 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
 }
 .panel-count { font-size: 0.79rem; color: var(--green); margin-bottom: 8px; }
 
+/* Settings. The whole row is the label, so the text is part of the target
+   rather than a caption beside a 13px box. */
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+.setting-row input[type="checkbox"] {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--orange);
+  cursor: pointer;
+  margin: 0;
+}
+.setting-note {
+  font-size: 0.79rem;
+  color: var(--muted);
+  line-height: 1.55;
+  padding: 0 4px;
+  margin-bottom: 16px;
+}
+
 #toast {
   position: fixed;
   left: 50%;

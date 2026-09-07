@@ -6,6 +6,7 @@ const HN  = 'https://news.ycombinator.com';
 const SITES_KEY  = 'hn_blocked_sites';
 const USERS_KEY  = 'hn_blocked_users';
 const SAVED_KEY  = 'hn_saved';
+const SETTINGS_KEY = 'hn_settings';
 const SCHEMA_KEY = 'hn_schema';
 const TAB_KEY    = 'hn_tab';
 
@@ -63,6 +64,72 @@ function mutateList(key, fn) {
   next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   writeList(key, next);
   return next;
+}
+
+/* ============================================================
+   SETTINGS
+   Per-device preferences, kept apart from the lists on purpose.
+   They are not in the backup: import merges lists, and silently
+   overwriting someone's preferences from a file is not a merge.
+   ============================================================ */
+
+const SETTING_DEFAULTS = {
+  xcancel: false          // open x.com story links through xcancel.com
+};
+
+function readSettings() {
+  let stored = {};
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) stored = parsed;
+  } catch (err) {
+    console.error('[hn] could not read settings', err);
+  }
+  return Object.assign({}, SETTING_DEFAULTS, stored);
+}
+
+function getSetting(name) {
+  return readSettings()[name];
+}
+
+function setSetting(name, value) {
+  const next = readSettings();
+  next[name] = value;
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  } catch (err) {
+    console.error('[hn] could not save settings', err);
+    toast('That setting was not saved.', true);
+    return;
+  }
+  renderStories();
+}
+
+function renderSettings() {
+  const current = readSettings();
+  document.querySelectorAll('#settingsPanel input[data-setting]').forEach(input => {
+    input.checked = !!current[input.getAttribute('data-setting')];
+  });
+}
+
+/* The rewrite happens when a link is drawn, never when a story is stored, so
+   the saved list keeps the canonical URL and turning the setting off puts every
+   link back where it was. */
+const XCANCEL_FOR = ['x.com'];
+
+function linkUrl(s) {
+  const raw = s.url || s.hnLink;
+  if (!getSetting('xcancel')) return raw;
+  try {
+    const u = new URL(raw);
+    if (!XCANCEL_FOR.some(host => hostMatches(u.hostname, host))) return raw;
+    u.protocol = 'https:';
+    u.hostname = 'xcancel.com';
+    return u.toString();
+  } catch (err) {
+    return raw;
+  }
 }
 
 /* ============================================================
@@ -435,7 +502,7 @@ function storyInfo(s) {
   const info = el('div', { class: 'info' });
 
   const titleRow = el('div', { class: 'title-row' }, [
-    el('a', { href: s.url || s.hnLink, target: '_blank', rel: 'noopener noreferrer', text: s.title })
+    el('a', { href: linkUrl(s), target: '_blank', rel: 'noopener noreferrer', text: s.title })
   ]);
   if (s.domain) {
     const wrap = el('span', { class: 'domain' });
@@ -836,6 +903,7 @@ function applyLayerOpen(name) {
   overlay.classList.add('open');
   if (name === 'blockedSites') renderBlockedSites();
   if (name === 'blockedUsers') renderBlockedUsers();
+  if (name === 'settings') renderSettings();
   updateUndoButtons();
   dispatchFetch('panel-open');
   const close = overlay.querySelector('.panel-close');
@@ -992,6 +1060,10 @@ window.addEventListener('storage', e => {
   if (e.key === null || e.key === SITES_KEY || e.key === USERS_KEY || e.key === SAVED_KEY) {
     refreshAllViews();
   }
+  if (e.key === null || e.key === SETTINGS_KEY) {
+    renderSettings();
+    renderStories();
+  }
 });
 
 /* ============================================================
@@ -1132,7 +1204,14 @@ document.querySelectorAll('.panel-tools').forEach(tools => {
     if (act === 'export') exportBlocks();
     if (act === 'import') document.getElementById('importFile').click();
     if (act === 'undo') performUndo();
+    // The layer machine swaps one panel for another, so this closes Blocked
+    // Sites on the way and back returns to the list, not to the panel behind.
+    if (act === 'settings') openLayer('settings');
   });
+});
+
+document.querySelectorAll('#settingsPanel input[data-setting]').forEach(input => {
+  input.addEventListener('change', () => setSetting(input.getAttribute('data-setting'), input.checked));
 });
 
 document.getElementById('importFile').addEventListener('change', e => {

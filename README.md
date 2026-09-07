@@ -40,6 +40,19 @@ row or in either panel. The stack lasts for the session and is emptied when the
 app is closed. Undoing an import asks first, because it removes everything that
 import brought in.
 
+## Settings
+
+The gear in the Blocked Sites panel opens Settings. There is one so far:
+
+**Use xcancel to open x.com sites.** Story links on `x.com`, and on any
+subdomain of it, open through `xcancel.com` instead. The swap happens when a
+link is drawn, not when a story is stored, so the row still shows the site the
+story came from, blocking still matches on `x.com`, and turning the setting off
+puts every link back. Links to `twitter.com` are left alone.
+
+Settings live in this browser and are not part of the backup, because importing
+someone else's file should merge your lists, not change your preferences.
+
 ## Refreshing
 
 Nothing refreshes on its own. The first launch loads the visible tab, and after
