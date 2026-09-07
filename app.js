@@ -361,6 +361,35 @@ function normUser(input) {
   return String(input || '').trim().toLowerCase();
 }
 
+/* A repost is the same link submitted again by someone else, so it arrives with
+   a new item id. Keying a post block on the link is what catches it. Scheme,
+   www., the fragment and the usual tracking parameters all vary between two
+   submissions of the same article and none of them identify it, so they go. The
+   remaining query is kept and sorted, because plenty of sites put the article
+   id in there. */
+const TRACKING_PARAMS = /^(utm_|ref$|ref_src$|fbclid$|gclid$|igshid$|mc_cid$|mc_eid$|si$|s$|cmpid$|smid$|_hsenc$|_hsmi$)/;
+
+function normUrl(input) {
+  if (!input) return '';
+  let u;
+  try { u = new URL(String(input)); } catch (err) { return ''; }
+  const host = normHost(u.hostname);
+  if (!host) return '';
+  const keep = [];
+  u.searchParams.forEach((value, name) => {
+    if (!TRACKING_PARAMS.test(name.toLowerCase())) keep.push(name.toLowerCase() + '=' + value);
+  });
+  keep.sort();
+  const path = u.pathname.replace(/\/+$/, '');
+  return host + path + (keep.length ? '?' + keep.join('&') : '');
+}
+
+// Only ever compared for text posts, which have no link to key on.
+function normTitle(input) {
+  return String(input || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+
 function hostMatches(host, blockedName) {
   const h = normHost(host);
   const b = normHost(blockedName);
@@ -448,43 +477,71 @@ function addBlockedUser(username, title, site) {
   refreshAllViews();
 }
 
-/* Blocking one post is a different kind of thing from blocking a site or a
-   user: those are standing rules that catch stories which do not exist yet,
-   this is a fact about a single story that leaves the feed within days. So it
-   stores only the id and when it was blocked, never the title, and it has no
-   panel of its own. Show Blocked is where you see and undo one. */
+/* Blocking a post keys on the link, not on the item, because HN re-promotes
+   stories and other people repost the same link, and either way it comes back
+   with a new id. A text post has no link, so those key on the title instead,
+   which is safe there and would not be safe generally: two unrelated articles
+   can share a headline, two unrelated Ask HN posts rarely do. The id is kept as
+   well, so an entry made before this still works and so does a post with
+   neither a usable link nor a title. */
+
+function postKeys(s) {
+  const url = normUrl(s.url);
+  return {
+    id: String(s.id),
+    url: url,
+    title: url ? '' : normTitle(s.title)   // titles only stand in for a missing link
+  };
+}
+
+function postEntryMatches(entry, keys) {
+  if (String(entry.id) === keys.id) return true;
+  if (keys.url && entry.url === keys.url) return true;
+  if (!keys.url && keys.title && entry.title === keys.title) return true;
+  return false;
+}
+
+function findStory(id) {
+  const key = String(id);
+  return (stories[currentTab] || []).find(s => String(s.id) === key) || null;
+}
 
 function addBlockedPost(id) {
   if (blockingFrozen()) return;
-  const key = String(id);
-  if (!key) return;
+  const story = findStory(id);
+  if (!story) return;
+  const keys = postKeys(story);
   let alreadyThere = false;
   mutateUnsorted(POSTS_KEY, list => {
-    if (list.some(p => String(p.id) === key)) { alreadyThere = true; return list; }
-    list.push({ id: key, time: Date.now() });
+    if (list.some(p => postEntryMatches(p, keys))) { alreadyThere = true; return list; }
+    list.push({ id: keys.id, url: keys.url, title: keys.title, time: Date.now() });
     return list;
   });
   if (alreadyThere) return;
   pushUndo({
     label: 'blocked a post',
-    undo: () => mutateUnsorted(POSTS_KEY, l => l.filter(p => String(p.id) !== key))
+    undo: () => mutateUnsorted(POSTS_KEY, l => l.filter(p => !postEntryMatches(p, keys)))
   });
   refreshAllViews();
 }
 
 function removeBlockedPost(id) {
   if (blockingFrozen()) return;
-  const key = String(id);
+  const story = findStory(id);
+  if (!story) return;
+  // Removes whatever entry matched, which for a repost is not the entry whose
+  // id equals this story's.
+  const keys = postKeys(story);
   let removed = [];
   mutateUnsorted(POSTS_KEY, list => {
-    removed = list.filter(p => String(p.id) === key);
-    return list.filter(p => String(p.id) !== key);
+    removed = list.filter(p => postEntryMatches(p, keys));
+    return list.filter(p => !postEntryMatches(p, keys));
   });
   if (removed.length) {
     pushUndo({
       label: 'unblocked a post',
       undo: () => mutateUnsorted(POSTS_KEY, l =>
-        l.filter(p => String(p.id) !== key).concat(removed))
+        l.filter(p => !postEntryMatches(p, keys)).concat(removed))
     });
   }
   refreshAllViews();
@@ -523,14 +580,19 @@ function isUserBlocked(user) {
   return readList(USERS_KEY).some(x => normUser(x.name) === u);
 }
 
-function isPostBlocked(id) {
-  const key = String(id);
-  if (renderPass) return renderPass.posts.has(key);
-  return readList(POSTS_KEY).some(p => String(p.id) === key);
+function isPostBlocked(story) {
+  const keys = postKeys(story);
+  if (renderPass) {
+    const p = renderPass.posts;
+    return p.ids.has(keys.id)
+      || (!!keys.url && p.urls.has(keys.url))
+      || (!keys.url && !!keys.title && p.titles.has(keys.title));
+  }
+  return readList(POSTS_KEY).some(entry => postEntryMatches(entry, keys));
 }
 
 function isStoryBlocked(story) {
-  return isPostBlocked(story.id) || isSiteBlocked(story.domain) || isUserBlocked(story.user);
+  return isPostBlocked(story) || isSiteBlocked(story.domain) || isUserBlocked(story.user);
 }
 
 /* ============================================================
@@ -665,7 +727,7 @@ function storyRow(s) {
 
   if (showBlocked) {
     group.appendChild(el('span', { class: 'action-label', text: 'Unblock' }));
-    if (isPostBlocked(s.id)) {
+    if (isPostBlocked(s)) {
       const post = el('button', { text: 'post', title: 'Unblock this post', type: 'button' });
       post.setAttribute('data-action', 'unblock-post');
       post.setAttribute('data-id', String(s.id));
@@ -729,7 +791,14 @@ let renderPass = null;
 function beginRenderPass() {
   renderPass = {
     saved: new Set(readSaved().map(s => String(s.id))),
-    posts: new Set(readList(POSTS_KEY).map(p => String(p.id))),
+    posts: (() => {
+      const entries = readList(POSTS_KEY);
+      return {
+        ids: new Set(entries.map(p => String(p.id))),
+        urls: new Set(entries.map(p => p.url).filter(Boolean)),
+        titles: new Set(entries.map(p => p.title).filter(Boolean))
+      };
+    })(),
     ytEmbed: getSetting('ytEmbed')
   };
 }
@@ -1217,7 +1286,7 @@ function importBlocks(file) {
         const id = p && p.id !== undefined ? String(p.id) : '';
         if (!id || have.has(id)) return;
         have.add(id);
-        list.push({ id: id, time: p.time || Date.now() });
+        list.push({ id: id, url: p.url || '', title: p.title || '', time: p.time || Date.now() });
         addedPosts.push(id);
       });
       return list;

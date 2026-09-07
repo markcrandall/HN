@@ -7,10 +7,13 @@ Each story row reads **Block post user site**, then **save**.
 
 Block a site and every story from it disappears, including its subdomains:
 blocking `reuters.com` also covers `www.reuters.com`. Block a user and their
-stories go the same way. Block a post and only that one story goes, which is the
-difference worth knowing: site and user blocks are standing rules that catch
-stories that do not exist yet, while a post block is a fact about one story that
-will leave the feed within days.
+stories go the same way. Block a post and the story goes, and so does any repost of it. The block keys on
+the link rather than the item, so it still catches the story when HN promotes it
+again or someone else submits the same link later with a new id. `www.`, `http`
+against `https`, a trailing slash, a fragment and tracking parameters like
+`utm_*` and `fbclid` are all ignored when comparing, so two submissions of the
+same article match. Text posts have no link, so those key on the title instead,
+which is safe there and would not be safe generally.
 
 The Show Blocked view turns the list inside out so you can see everything you
 have hidden and put any of it back. A blocked post has no panel of its own,
