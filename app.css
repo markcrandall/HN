@@ -280,8 +280,12 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
 }
 .story .meta a { color: var(--muted); text-decoration: none; }
 .story .meta a:hover { color: var(--text); }
-.story .actions { display: flex; gap: 4px; }
+.story .actions { display: flex; gap: 8px; }
 .story .actions button {
+  /* One width for the whole set, taken from the longest label, so the column
+     reads as a block rather than as three ragged boxes. A min rather than a
+     fixed width, so the blocked view's "unblock example.com" is free to grow. */
+  min-width: 6em;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
@@ -553,7 +557,9 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
   .story .actions {
     grid-column: 2;
     flex-wrap: wrap;
-    gap: 8px;
+    /* Row gap clears the 12px the tap areas extend above and below, so a set
+       that wraps below the 360px floor does not stack overlapping targets. */
+    gap: 28px 16px;
     margin-top: 6px;
   }
   /* The 8px gap above lets each button take 4px a side without overlapping
