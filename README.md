@@ -22,8 +22,11 @@ The header reads **Blocked sites users posts**, and each opens its own list
 where you can review and delete entries. The posts list is the one you cannot
 see any other way: Show Blocked only reveals an entry while a matching story is
 in the current feed, so a block on something not posted right now is invisible
-there. Entries blocked before that panel existed show only their link, because
-there was nothing else stored to show.
+there. Entries blocked before that panel existed recorded only an item number, so the
+panel looks those up once and fills in the title and site. That is also what
+upgrades them from matching one item to matching the link, so a repost of one
+starts being caught. An id that resolves to nothing, a comment or a deleted
+story, stays as its number and is not asked about again.
 
 ## Install it
 

@@ -923,11 +923,10 @@ function renderBlockedPosts() {
 
   list.forEach(item => {
     const info = el('div', { class: 'blocked-info' });
-    const name = item.label || item.url || item.title || 'Blocked post';
+    const name = item.label || item.url || item.title || ('Post ' + item.id);
     info.appendChild(el('span', { class: 'blocked-name', text: name }));
-    // An entry from before this panel has only a link, which is already the
-    // name, so there is nothing to add underneath it.
-    const where = item.site || item.url || (item.title ? 'text post' : '');
+    // Whatever is left that says something the name does not.
+    const where = item.site || item.url || (item.title ? 'text post' : 'item ' + item.id);
     if (where && where !== name) info.appendChild(el('span', { class: 'blocked-meta', text: where }));
 
     const rm = el('button', { text: '×', title: 'Unblock this post', type: 'button' });
@@ -939,6 +938,59 @@ function renderBlockedPosts() {
   container.innerHTML = '';
   container.appendChild(frag);
   document.getElementById('postsCount').textContent = plural(list.length, 'post') + ' blocked';
+}
+
+/* Entries made before blocking recorded anything but an id have nothing to show
+   and, worse, nothing to match a repost on. The id is enough to ask HN what the
+   story was, so opening the panel fills them in once and writes the result
+   back. That fixes the row and upgrades the entry from id-only to link-keyed,
+   so a repost of it starts being caught. */
+
+let backfilling = false;
+
+async function backfillBlockedPosts() {
+  if (backfilling) return;
+  const missing = readList(POSTS_KEY)
+    .filter(p => !p.label && !p.looked && /^\d+$/.test(String(p.id)))
+    .slice(0, 50);
+  if (!missing.length) return;
+
+  backfilling = true;
+  try {
+    const items = await mapLimit(missing, 6, p => fetchJson(API + '/item/' + p.id + '.json'));
+    const found = new Map();
+    const asked = new Set(missing.map(p => String(p.id)));
+    items.forEach((item, i) => {
+      if (item && item.title) found.set(String(missing[i].id), item);
+    });
+
+    mutateUnsorted(POSTS_KEY, list => list.map(p => {
+      const key = String(p.id);
+      const item = found.get(key);
+      // Asked and got nothing back: a comment, a deleted item, an id that never
+      // existed. Marked so it is not asked about again on every panel open.
+      if (!item) return asked.has(key) && !p.label ? Object.assign({}, p, { looked: 1 }) : p;
+      if (p.label) return p;
+      let host = '';
+      if (item.url) { try { host = normHost(new URL(item.url).hostname); } catch (err) { host = ''; } }
+      const url = normUrl(item.url || '');
+      return Object.assign({}, p, {
+        label: item.title || '',
+        site: host,
+        url: p.url || url,
+        // Title only stands in for a missing link, same rule as when blocking.
+        title: p.title || (url ? '' : normTitle(item.title || ''))
+      });
+    }));
+
+    renderBlockedPosts();
+    renderStories();
+    updateCounts();
+  } catch (err) {
+    console.error('[hn] could not look up blocked posts', err);
+  } finally {
+    backfilling = false;
+  }
 }
 
 function renderBlockedUsers() {
@@ -1215,7 +1267,7 @@ function applyLayerOpen(name) {
   overlay.classList.add('open');
   if (name === 'blockedSites') renderBlockedSites();
   if (name === 'blockedUsers') renderBlockedUsers();
-  if (name === 'blockedPosts') renderBlockedPosts();
+  if (name === 'blockedPosts') { renderBlockedPosts(); backfillBlockedPosts(); }
   if (name === 'settings') renderSettings();
   if (name === 'video') mountVideo();
   updateUndoButtons();
