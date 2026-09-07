@@ -644,9 +644,15 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
   top: 50%;
   right: 50%;
   transform: translate(50%, -40%);
-  width: min(960px, 94vw);
+  /* Width is capped by the height as well, because the player is 16:9 and a
+     phone held sideways has far more width than height. Sizing on width alone
+     makes the video taller than the viewport and clips the bottom of it.
+     80px is the header plus the padding under the player. */
+  width: min(960px, 94vw, calc((92vh - 80px) * 16 / 9));
+  width: min(960px, 94vw, calc((92dvh - 80px) * 16 / 9));
   height: auto;
   max-height: 92vh;
+  max-height: 92dvh;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
@@ -668,6 +674,19 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
     border-right: none;
   }
   .panel-video .watch-stage { padding: 0 12px 12px; }
+}
+
+/* A phone held sideways. Trim the chrome so the player gets the height back,
+   and recompute the cap against the smaller allowance. */
+@media (max-height: 500px) {
+  .panel.panel-video {
+    max-height: 98vh;
+    max-height: 98dvh;
+    width: min(960px, 94vw, calc((98vh - 56px) * 16 / 9));
+    width: min(960px, 94vw, calc((98dvh - 56px) * 16 / 9));
+  }
+  .panel-video .panel-header { padding: 6px 12px; }
+  .panel-video .watch-stage { padding: 0 10px 10px; }
 }
 .watch-stage iframe {
   display: block;
