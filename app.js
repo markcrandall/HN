@@ -141,7 +141,9 @@ function startSeconds(value) {
 /* Returns null unless a single video can be identified with certainty. A
    playlist, a channel or a search has nothing to embed, and a link that cannot
    be parsed is left exactly as it was rather than guessed at. */
-function youtubeEmbedUrl(u) {
+function youtubeRef(raw) {
+  let u;
+  try { u = new URL(raw); } catch (err) { return null; }
   if (!YOUTUBE_FOR.some(host => hostMatches(u.hostname, host))) return null;
 
   let id = null;
@@ -154,11 +156,18 @@ function youtubeEmbedUrl(u) {
   }
   if (!id || !VIDEO_ID.test(id)) return null;
 
-  // Points at this app's own watch page, not straight at the embed. YouTube
-  // refuses an embed loaded as a top level navigation (Error 153), so the
-  // player needs a page on this origin to sit inside.
-  const start = startSeconds(u.searchParams.get('t') || u.searchParams.get('start'));
-  return 'watch.html?v=' + id + (start ? '&t=' + start : '');
+  return { id: id, start: startSeconds(u.searchParams.get('t') || u.searchParams.get('start')) };
+}
+
+/* The href points at this app's own watch page, not straight at the embed:
+   YouTube refuses an embed loaded as a top level navigation (Error 153), so the
+   player needs a page on this origin to sit inside. In the app a click is
+   intercepted and the same player opens as a layer instead, because a
+   same-origin, in-scope navigation replaces the installed app's own window and
+   coming back reloads it, losing the loaded stories and the filter. The href
+   stays real so opening the link in a new tab still works. */
+function watchPageUrl(ref) {
+  return 'watch.html?v=' + ref.id + (ref.start ? '&t=' + ref.start : '');
 }
 
 function linkUrl(s) {
@@ -171,10 +180,16 @@ function linkUrl(s) {
     if (swapped) return swapped;
   }
   if (getSetting('ytEmbed')) {
-    const embed = youtubeEmbedUrl(u);
-    if (embed) return embed;
+    const ref = youtubeRef(raw);
+    if (ref) return watchPageUrl(ref);
   }
   return raw;
+}
+
+// The video ref for a story, or null when nothing should be intercepted.
+function videoRef(s) {
+  if (!getSetting('ytEmbed')) return null;
+  return youtubeRef(s.url || s.hnLink);
 }
 
 /* ============================================================
@@ -546,9 +561,13 @@ function actionButton(label, title, action, payload) {
 function storyInfo(s) {
   const info = el('div', { class: 'info' });
 
-  const titleRow = el('div', { class: 'title-row' }, [
-    el('a', { href: linkUrl(s), target: '_blank', rel: 'noopener noreferrer', text: s.title })
-  ]);
+  const titleLink = el('a', { href: linkUrl(s), target: '_blank', rel: 'noopener noreferrer', text: s.title });
+  const video = videoRef(s);
+  if (video) {
+    titleLink.setAttribute('data-video', video.id);
+    titleLink.setAttribute('data-start', String(video.start));
+  }
+  const titleRow = el('div', { class: 'title-row' }, [titleLink]);
   if (s.domain) {
     const wrap = el('span', { class: 'domain' });
     wrap.appendChild(document.createTextNode('('));
@@ -949,6 +968,7 @@ function applyLayerOpen(name) {
   if (name === 'blockedSites') renderBlockedSites();
   if (name === 'blockedUsers') renderBlockedUsers();
   if (name === 'settings') renderSettings();
+  if (name === 'video') mountVideo();
   updateUndoButtons();
   dispatchFetch('panel-open');
   const close = overlay.querySelector('.panel-close');
@@ -962,8 +982,48 @@ function applyLayerClosed(name) {
     return;
   }
   document.getElementById(name + 'Panel').classList.remove('open');
+  if (name === 'video') unmountVideo();
   if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
   lastFocused = null;
+}
+
+/* The player is a layer rather than a page. A same-origin, in-scope navigation
+   replaces the installed app's own window, so coming back from it reloads the
+   app and throws away the loaded stories and the filter. A cross-origin link
+   like xcancel does not have that problem, because the browser opens it beside
+   the app rather than inside it. */
+
+let pendingVideo = null;
+
+function openVideo(id, start) {
+  pendingVideo = { id: id, start: start || 0 };
+  openLayer('video');
+}
+
+function mountVideo() {
+  const stage = document.getElementById('videoStage');
+  stage.innerHTML = '';
+  if (!pendingVideo) return;
+  const { id, start } = pendingVideo;
+
+  document.getElementById('videoOut').href =
+    'https://www.youtube.com/watch?v=' + id + (start ? '&t=' + start + 's' : '');
+
+  const frame = el('iframe', {
+    src: 'https://www.youtube-nocookie.com/embed/' + id + (start ? '?start=' + start : ''),
+    title: 'Video player',
+    allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
+    allowFullscreen: true
+  });
+  frame.setAttribute('frameborder', '0');
+  stage.appendChild(frame);
+}
+
+function unmountVideo() {
+  // Removing the frame is what stops playback. Closing the overlay alone would
+  // leave the audio running behind the story list.
+  document.getElementById('videoStage').innerHTML = '';
+  pendingVideo = null;
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -1274,6 +1334,16 @@ document.addEventListener('click', e => {
       && !e.target.closest('#disclosureBtn, #viewToggle')
       && !e.target.closest('#btnSites, #btnUsers')) {   // those swap the layer themselves
     closeLayer();
+  }
+
+  // A plain left click on a video link opens the layer. Modified clicks and
+  // middle clicks fall through to the href, so "open in a new tab" still gets
+  // the standalone watch page.
+  const video = e.target.closest('a[data-video]');
+  if (video && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.button === 0) {
+    e.preventDefault();
+    openVideo(video.getAttribute('data-video'), parseInt(video.getAttribute('data-start'), 10) || 0);
+    return;
   }
 
   const btn = e.target.closest('button[data-action]');

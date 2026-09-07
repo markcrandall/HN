@@ -627,11 +627,47 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
 }
 .watch-bar a { color: var(--text); text-decoration: none; }
 .watch-bar a:hover { color: var(--orange); }
-.watch-bar .watch-out { color: var(--muted); }
+/* Styled by class, not by ancestor, because the same link appears in the watch
+   page's own bar and in the in-app player's panel header. */
+.watch-out { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
+.watch-out:hover { color: var(--orange); }
 .watch-stage {
   max-width: 1200px;
   margin: 0 auto;
   padding: 16px 20px;
+  width: 100%;
+}
+
+/* The in-app player: a centred sheet rather than the side drawer the list
+   panels use, because a video wants width more than it wants height. */
+.panel.panel-video {
+  top: 50%;
+  right: 50%;
+  transform: translate(50%, -40%);
+  width: min(960px, 94vw);
+  height: auto;
+  max-height: 92vh;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  opacity: 0;
+  transition: transform 0.2s, opacity 0.2s;
+}
+.panel-overlay.open .panel.panel-video { transform: translate(50%, -50%); opacity: 1; }
+.panel-video .panel-header { justify-content: space-between; }
+.panel-video .watch-stage { padding: 0 16px 16px; }
+
+/* This block has to sit after the rules above, not up in the main narrow
+   section, because the selectors have equal specificity and the later one
+   wins. Moving it there would silently cancel it. */
+@media (max-width: 640px) {
+  .panel.panel-video {
+    width: 100%;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  .panel-video .watch-stage { padding: 0 12px 12px; }
 }
 .watch-stage iframe {
   display: block;

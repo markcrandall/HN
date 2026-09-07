@@ -50,17 +50,21 @@ when a link is drawn, not when a story is stored, so the row still shows the
 site the story came from, blocking still matches on the original site, and
 turning the setting off puts every link back.
 
-**Open YouTube links as a plain embed.** A YouTube link opens `watch.html` in
-this app, holding just the video played through `youtube-nocookie.com`: no
-sidebar, no recommendations, and no tracking cookies until you press play. There
-is no description and no comments, and every page carries an **Open on YouTube**
-link for when you want them. Where a creator has turned embedding off, the
-player says so and offers the same way out. Playlist, channel and search links
-are left alone.
+**Open YouTube links as a plain embed.** A YouTube link opens the video over the
+list, played through `youtube-nocookie.com`: no sidebar, no recommendations, and
+no tracking cookies until you press play. Back closes it and your stories and
+filter are exactly where you left them. There is no description and no comments,
+and there is an **Open on YouTube** link for when you want them. Where a creator
+has turned embedding off, the player says so and offers the same way out.
+Playlist, channel and search links are left alone.
 
-The page exists because YouTube refuses to run its embed player as a top level
-navigation, answering with "Error 153". The player has to sit in an iframe on a
-page of our own, so linking straight to the embed URL does not work.
+Two constraints shaped this. YouTube refuses to run its embed player as a top
+level navigation, answering with "Error 153", so the player has to sit in an
+iframe on a page of ours. And an installed app navigating to its own pages
+replaces its own window, so going to a separate page and coming back would
+reload the app and lose the loaded stories. Hence a layer over the list rather
+than a page. `watch.html` is still there and still works, so opening a video
+link in a new tab gets a real page.
 
 Settings live in this browser and are not part of the backup, because importing
 someone else's file should merge your lists, not change your preferences.
@@ -80,7 +84,7 @@ Plain static files, no build step.
 | File | What it is |
 | --- | --- |
 | `index.html` | Markup |
-| `watch.html` | The single-video page the YouTube setting links to |
+| `watch.html` | Standalone single-video page, for a video link opened in its own tab |
 | `app.css` | All styles, one breakpoint at 640px |
 | `app.js` | All behaviour |
 | `sw.js` | Service worker: precaches the shell, revalidates it each launch |
