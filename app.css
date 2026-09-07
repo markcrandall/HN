@@ -283,12 +283,17 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
 }
 .story .meta a { color: var(--muted); text-decoration: none; }
 .story .meta a:hover { color: var(--text); }
-.story .actions { display: flex; gap: 8px; }
+/* "Block post user site", a gap, then save. The gap on .actions is the space
+   that separates the two groups; the tighter one inside the group is what makes
+   them read as one set under a single verb. */
+.story .actions { display: flex; align-items: center; gap: 22px; }
+.story .action-group { display: flex; align-items: center; gap: 8px; }
+.story .action-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
 .story .actions button {
-  /* One width for the whole set, taken from the longest label, so the column
-     reads as a block rather than as three ragged boxes. A min rather than a
-     fixed width, so the blocked view's "unblock example.com" is free to grow. */
-  min-width: 6em;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
@@ -588,12 +593,13 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
     flex-wrap: wrap;
     /* Row gap clears the 12px the tap areas extend above and below, so a set
        that wraps below the 360px floor does not stack overlapping targets. */
-    gap: 28px 16px;
+    gap: 28px 18px;
     margin-top: 6px;
   }
-  /* The 8px gap above lets each button take 4px a side without overlapping
-     its neighbour, which puts every tap target over 44px tall. */
-  .story .actions button::after { inset: -12px -4px; }
+  .story .action-group { gap: 12px; }
+  /* 5px a side against the 12px gap above keeps 2px between neighbouring tap
+     areas, and 12px top and bottom puts every target over 44px tall. */
+  .story .actions button::after { inset: -12px -5px; }
 
   .panel { width: 100%; max-width: none; border-left: none; }
   .panel-body { padding: 12px; }

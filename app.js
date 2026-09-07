@@ -5,14 +5,15 @@ const HN  = 'https://news.ycombinator.com';
 
 const SITES_KEY  = 'hn_blocked_sites';
 const USERS_KEY  = 'hn_blocked_users';
+const POSTS_KEY  = 'hn_blocked_posts';
 const SAVED_KEY  = 'hn_saved';
 const SETTINGS_KEY = 'hn_settings';
 const SCHEMA_KEY = 'hn_schema';
 const TAB_KEY    = 'hn_tab';
 
 const SCHEMA_VERSION = 1;   // storage schema, shared by the lists and the UI state
-const EXPORT_VERSION = 2;   // what an export is written as: 2 carries the saved list
-const EXPORT_READS   = [1, 2];   // what an import accepts; a v1 file simply has no saved list
+const EXPORT_VERSION = 3;   // 2 added the saved list, 3 adds the blocked posts
+const EXPORT_READS   = [1, 2, 3];   // an older file simply has fewer sections
 const STORY_COUNT    = 500;
 const NARROW = window.matchMedia('(max-width: 640px)');
 
@@ -209,12 +210,17 @@ function readSaved() {
   return readList(SAVED_KEY);
 }
 
-// Like mutateList, but without the sort: the order here is meaningful.
-function mutateSaved(fn) {
-  const next = fn(readSaved().slice());
-  if (!Array.isArray(next)) return readSaved();
-  writeList(SAVED_KEY, next);
+// Like mutateList, but without the sort by name: these lists are ordered by
+// when things were added, and their entries have an id rather than a name.
+function mutateUnsorted(key, fn) {
+  const next = fn(readList(key).slice());
+  if (!Array.isArray(next)) return readList(key);
+  writeList(key, next);
   return next;
+}
+
+function mutateSaved(fn) {
+  return mutateUnsorted(SAVED_KEY, fn);
 }
 
 function isSaved(id) {
@@ -442,6 +448,48 @@ function addBlockedUser(username, title, site) {
   refreshAllViews();
 }
 
+/* Blocking one post is a different kind of thing from blocking a site or a
+   user: those are standing rules that catch stories which do not exist yet,
+   this is a fact about a single story that leaves the feed within days. So it
+   stores only the id and when it was blocked, never the title, and it has no
+   panel of its own. Show Blocked is where you see and undo one. */
+
+function addBlockedPost(id) {
+  if (blockingFrozen()) return;
+  const key = String(id);
+  if (!key) return;
+  let alreadyThere = false;
+  mutateUnsorted(POSTS_KEY, list => {
+    if (list.some(p => String(p.id) === key)) { alreadyThere = true; return list; }
+    list.push({ id: key, time: Date.now() });
+    return list;
+  });
+  if (alreadyThere) return;
+  pushUndo({
+    label: 'blocked a post',
+    undo: () => mutateUnsorted(POSTS_KEY, l => l.filter(p => String(p.id) !== key))
+  });
+  refreshAllViews();
+}
+
+function removeBlockedPost(id) {
+  if (blockingFrozen()) return;
+  const key = String(id);
+  let removed = [];
+  mutateUnsorted(POSTS_KEY, list => {
+    removed = list.filter(p => String(p.id) === key);
+    return list.filter(p => String(p.id) !== key);
+  });
+  if (removed.length) {
+    pushUndo({
+      label: 'unblocked a post',
+      undo: () => mutateUnsorted(POSTS_KEY, l =>
+        l.filter(p => String(p.id) !== key).concat(removed))
+    });
+  }
+  refreshAllViews();
+}
+
 function removeBlockedUser(name) {
   if (blockingFrozen()) return;
   const n = normUser(name);
@@ -475,8 +523,14 @@ function isUserBlocked(user) {
   return readList(USERS_KEY).some(x => normUser(x.name) === u);
 }
 
+function isPostBlocked(id) {
+  const key = String(id);
+  if (renderPass) return renderPass.posts.has(key);
+  return readList(POSTS_KEY).some(p => String(p.id) === key);
+}
+
 function isStoryBlocked(story) {
-  return isSiteBlocked(story.domain) || isUserBlocked(story.user);
+  return isPostBlocked(story.id) || isSiteBlocked(story.domain) || isUserBlocked(story.user);
 }
 
 /* ============================================================
@@ -601,18 +655,40 @@ function savedRow(item) {
   return el('div', { class: 'story saved-row' }, [storyInfo(item), actions]);
 }
 
+/* The row reads "Block post user site", then a gap, then save. One verb said
+   once, so each button only has to name what it acts on. In Show Blocked the
+   same shape reads "Unblock", carrying only the buttons that apply. */
 function storyRow(s) {
   const info = storyInfo(s);
   const actions = el('div', { class: 'actions' });
+  const group = el('div', { class: 'action-group' });
+
   if (showBlocked) {
-    if (isSiteBlocked(s.domain)) {
-      const matched = matchingSiteRule(s.domain);
-      actions.appendChild(actionButton('unblock ' + matched, 'Unblock ' + matched, 'unblock-site', { name: matched }));
+    group.appendChild(el('span', { class: 'action-label', text: 'Unblock' }));
+    if (isPostBlocked(s.id)) {
+      const post = el('button', { text: 'post', title: 'Unblock this post', type: 'button' });
+      post.setAttribute('data-action', 'unblock-post');
+      post.setAttribute('data-id', String(s.id));
+      group.appendChild(post);
     }
     if (isUserBlocked(s.user)) {
-      actions.appendChild(actionButton('unblock user', 'Unblock ' + s.user, 'unblock-user', { name: s.user }));
+      group.appendChild(actionButton('user', 'Unblock ' + s.user, 'unblock-user', { name: s.user }));
     }
+    if (isSiteBlocked(s.domain)) {
+      const matched = matchingSiteRule(s.domain);
+      group.appendChild(actionButton('site', 'Unblock ' + matched, 'unblock-site', { name: matched }));
+    }
+    actions.appendChild(group);
   } else {
+    group.appendChild(el('span', { class: 'action-label', text: 'Block' }));
+    const post = el('button', { text: 'post', title: 'Hide this post', type: 'button' });
+    post.setAttribute('data-action', 'block-post');
+    post.setAttribute('data-id', String(s.id));
+    group.appendChild(post);
+    if (s.user) group.appendChild(actionButton('user', 'Block ' + s.user, 'block-user', { name: s.user, title: s.title, extra: s.domain || 'self' }));
+    if (s.domain) group.appendChild(actionButton('site', 'Block ' + normHost(s.domain) + ' and its subdomains', 'block-site', { name: s.domain, title: s.title, extra: s.user }));
+    actions.appendChild(group);
+
     const saved = isSaved(s.id);
     const save = el('button', {
       text: saved ? 'saved' : 'save',
@@ -623,8 +699,6 @@ function storyRow(s) {
     save.setAttribute('data-action', saved ? 'unsave-story' : 'save-story');
     save.setAttribute('data-id', String(s.id));
     actions.appendChild(save);
-    if (s.user) actions.appendChild(actionButton('block user', 'Block ' + s.user, 'block-user', { name: s.user, title: s.title, extra: s.domain || 'self' }));
-    if (s.domain) actions.appendChild(actionButton('block site', 'Block ' + normHost(s.domain) + ' and its subdomains', 'block-site', { name: s.domain, title: s.title, extra: s.user }));
   }
 
   const row = el('div', { class: 'story' }, [
@@ -655,6 +729,7 @@ let renderPass = null;
 function beginRenderPass() {
   renderPass = {
     saved: new Set(readSaved().map(s => String(s.id))),
+    posts: new Set(readList(POSTS_KEY).map(p => String(p.id))),
     ytEmbed: getSetting('ytEmbed')
   };
 }
@@ -1104,6 +1179,7 @@ function exportBlocks() {
     exportedAt: new Date().toISOString(),
     sites: readList(SITES_KEY),
     users: readList(USERS_KEY),
+    posts: readList(POSTS_KEY),
     saved: readSaved()
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1114,6 +1190,7 @@ function exportBlocks() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   toast('Exported ' + plural(data.sites.length, 'site') + ', ' + plural(data.users.length, 'user') +
+    ', ' + plural(data.posts.length, 'post') +
     ' and ' + plural(data.saved.length, 'saved story', 'saved stories') + '.');
 }
 
@@ -1127,11 +1204,24 @@ function importBlocks(file) {
 
     if (data.format !== 'hn-tracker-blocklist' || EXPORT_READS.indexOf(data.version) === -1) {
       toast('Import failed: this file is version ' + (data.version === undefined ? 'unknown' : data.version) +
-        ', and this app reads versions ' + EXPORT_READS.join(' and ') + '. Nothing was merged.', true);
+        ', and this app reads versions ' + andList(EXPORT_READS) + '. Nothing was merged.', true);
       return;
     }
 
-    const addedSites = [], addedUsers = [], addedSaved = [];
+    const addedSites = [], addedUsers = [], addedPosts = [], addedSaved = [];
+
+    // Absent from a v1 or v2 file, so this loop simply does nothing for one.
+    mutateUnsorted(POSTS_KEY, list => {
+      const have = new Set(list.map(p => String(p.id)));
+      (data.posts || []).forEach(p => {
+        const id = p && p.id !== undefined ? String(p.id) : '';
+        if (!id || have.has(id)) return;
+        have.add(id);
+        list.push({ id: id, time: p.time || Date.now() });
+        addedPosts.push(id);
+      });
+      return list;
+    });
 
     mutateList(SITES_KEY, list => {
       const have = new Set(list.map(s => normHost(s.name)));
@@ -1180,17 +1270,20 @@ function importBlocks(file) {
       return list.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
     });
 
-    if (addedSites.length || addedUsers.length || addedSaved.length) {
-      const siteSet = new Set(addedSites), userSet = new Set(addedUsers), savedSet = new Set(addedSaved);
+    if (addedSites.length || addedUsers.length || addedPosts.length || addedSaved.length) {
+      const siteSet = new Set(addedSites), userSet = new Set(addedUsers);
+      const postSet = new Set(addedPosts), savedSet = new Set(addedSaved);
       pushUndo({
         kind: 'import',
         label: 'import of ' + plural(addedSites.length, 'site') + ', ' + plural(addedUsers.length, 'user') +
+          ', ' + plural(addedPosts.length, 'post') +
           ' and ' + plural(addedSaved.length, 'saved story', 'saved stories'),
         // Saved has no undo of its own, but the import undo still has to take
         // back everything the import put in, or it is only half an undo.
         undo: () => {
           mutateList(SITES_KEY, l => l.filter(s => !siteSet.has(normHost(s.name))));
           mutateList(USERS_KEY, l => l.filter(u => !userSet.has(normUser(u.name))));
+          mutateUnsorted(POSTS_KEY, l => l.filter(p => !postSet.has(String(p.id))));
           mutateSaved(l => l.filter(s => !savedSet.has(String(s.id))));
         }
       });
@@ -1198,6 +1291,7 @@ function importBlocks(file) {
 
     refreshAllViews();
     toast('Merged in ' + plural(addedSites.length, 'new site') + ', ' + plural(addedUsers.length, 'new user') +
+      ', ' + plural(addedPosts.length, 'new post') +
       ' and ' + plural(addedSaved.length, 'new saved story', 'new saved stories') + '.');
   };
   reader.onerror = () => toast('Could not read that file.', true);
@@ -1211,7 +1305,7 @@ function importBlocks(file) {
    ============================================================ */
 
 window.addEventListener('storage', e => {
-  if (e.key === null || e.key === SITES_KEY || e.key === USERS_KEY || e.key === SAVED_KEY) {
+  if (e.key === null || e.key === SITES_KEY || e.key === USERS_KEY || e.key === POSTS_KEY || e.key === SAVED_KEY) {
     refreshAllViews();
   }
   if (e.key === null || e.key === SETTINGS_KEY) {
@@ -1290,6 +1384,12 @@ function hideConfirmToast() {
 
 function plural(n, one, many) {
   return n + ' ' + (n === 1 ? one : (many || one + 's'));
+}
+
+// "1", "1 and 2", "1, 2 and 3".
+function andList(items) {
+  if (items.length < 2) return String(items[0] === undefined ? '' : items[0]);
+  return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
 }
 
 function timeAgo(ts) {
@@ -1409,8 +1509,10 @@ document.addEventListener('click', e => {
   const extra = btn.getAttribute('data-extra') || '';
   if (action === 'block-site')   addBlockedSite(name, title, extra);
   if (action === 'block-user')   addBlockedUser(name, title, extra);
+  if (action === 'block-post')   addBlockedPost(btn.getAttribute('data-id'));
   if (action === 'unblock-site') removeBlockedSite(name);
   if (action === 'unblock-user') removeBlockedUser(name);
+  if (action === 'unblock-post') removeBlockedPost(btn.getAttribute('data-id'));
 });
 
 document.addEventListener('keydown', e => {

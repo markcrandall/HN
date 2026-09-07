@@ -3,10 +3,18 @@
 A Hacker News reader with per-site and per-user blocklists. Installable as a web
 app; live at <https://markcrandall.github.io/HN/>.
 
+Each story row reads **Block post user site**, then **save**.
+
 Block a site and every story from it disappears, including its subdomains:
 blocking `reuters.com` also covers `www.reuters.com`. Block a user and their
-stories go the same way. The Show Blocked view turns the list inside out so you
-can see and undo what you have hidden.
+stories go the same way. Block a post and only that one story goes, which is the
+difference worth knowing: site and user blocks are standing rules that catch
+stories that do not exist yet, while a post block is a fact about one story that
+will leave the feed within days.
+
+The Show Blocked view turns the list inside out so you can see everything you
+have hidden and put any of it back. A blocked post has no panel of its own,
+because there is nothing to manage: Show Blocked is where you undo one.
 
 ## Install it
 
