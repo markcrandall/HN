@@ -249,6 +249,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
   transition: background 0.15s;
 }
 .story:hover { background: var(--surface2); }
+/* A saved row is a story row without the score, so it drops the first column. */
+.story.saved-row { grid-template-columns: 1fr auto; }
 
 .story .score {
   text-align: center;
@@ -543,6 +545,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
     gap: 8px;
     padding: 10px;
   }
+  .story.saved-row { grid-template-columns: 1fr; }
+  .story.saved-row .actions { grid-column: 1; }
   .story .score { font-size: 0.92rem; }
   .story .title-row a { font-size: 1.02rem; }
   .story .domain { display: block; margin-left: 0; margin-top: 2px; }
@@ -568,6 +572,15 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
     transform: translateY(140%);
   }
   #toast.show { transform: translateY(0); }
+}
+
+/* Below the 360px floor the third tab pushes the disclosure onto its own line.
+   Tightening the tabs row is enough to keep it to one, and it changes nothing
+   at or above 400px. */
+@media (max-width: 400px) {
+  .tabs { padding: 0 8px; }
+  .tab-btn { padding: 10px 8px; }
+  .tabs .icon-btn, .tabs .disclosure-btn { margin-left: 6px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -5,15 +5,18 @@ const HN  = 'https://news.ycombinator.com';
 
 const SITES_KEY  = 'hn_blocked_sites';
 const USERS_KEY  = 'hn_blocked_users';
+const SAVED_KEY  = 'hn_saved';
 const SCHEMA_KEY = 'hn_schema';
 const TAB_KEY    = 'hn_tab';
 
-const SCHEMA_VERSION = 1;   // storage schema, shared by the blocklists and the UI state
-const EXPORT_VERSION = 1;   // export file format, kept in step with the schema
+const SCHEMA_VERSION = 1;   // storage schema, shared by the lists and the UI state
+const EXPORT_VERSION = 2;   // what an export is written as: 2 carries the saved list
+const EXPORT_READS   = [1, 2];   // what an import accepts; a v1 file simply has no saved list
 const STORY_COUNT    = 500;
 const NARROW = window.matchMedia('(max-width: 640px)');
 
 const TAB_LABEL = { top: 'top', new: 'newest' };
+const FEED_TABS = ['top', 'new'];   // Saved is a local list and never fetches
 
 let currentTab = 'top';
 let stories = { top: [], new: [] };
@@ -60,6 +63,67 @@ function mutateList(key, fn) {
   next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   writeList(key, next);
   return next;
+}
+
+/* ============================================================
+   SAVED STORIES
+   A read-later list, kept in the order it was built with the most
+   recent first. It holds everything a story row shows except the
+   score, because a story falls out of the top 500 within a day or
+   two and an id on its own would go dead.
+
+   Deliberately outside the undo stack: a saved story is removed by
+   its own delete button, one row at a time, and there is nothing to
+   reverse in bulk.
+   ============================================================ */
+
+function readSaved() {
+  return readList(SAVED_KEY);
+}
+
+// Like mutateList, but without the sort: the order here is meaningful.
+function mutateSaved(fn) {
+  const next = fn(readSaved().slice());
+  if (!Array.isArray(next)) return readSaved();
+  writeList(SAVED_KEY, next);
+  return next;
+}
+
+function isSaved(id) {
+  const key = String(id);
+  return readSaved().some(s => String(s.id) === key);
+}
+
+function savedFromStory(s) {
+  return {
+    id: s.id,
+    title: s.title || '',
+    url: s.url || '',
+    domain: s.domain || null,
+    user: s.user || '',
+    comments: s.comments || 0,
+    time: s.time || 0,
+    hnLink: s.hnLink,
+    savedAt: Date.now()
+  };
+}
+
+function saveStory(id) {
+  const key = String(id);
+  const story = (stories[currentTab] || []).find(s => String(s.id) === key);
+  if (!story) return;
+  if (isSaved(key)) { toast('Already saved.'); return; }
+  mutateSaved(list => [savedFromStory(story)].concat(list));
+  renderStories();
+  updateCounts();
+  toast('Saved.');
+}
+
+function unsaveStory(id) {
+  const key = String(id);
+  mutateSaved(list => list.filter(s => String(s.id) !== key));
+  renderStories();
+  updateCounts();
 }
 
 /* ============================================================
@@ -365,7 +429,9 @@ function actionButton(label, title, action, payload) {
   return b;
 }
 
-function storyRow(s) {
+// Title, domain and the author/time/comments line. Shared by the feed rows and
+// the saved rows, which differ only in the score and the buttons.
+function storyInfo(s) {
   const info = el('div', { class: 'info' });
 
   const titleRow = el('div', { class: 'title-row' }, [
@@ -381,11 +447,29 @@ function storyRow(s) {
   info.appendChild(titleRow);
 
   const meta = el('div', { class: 'meta' });
-  meta.appendChild(el('a', { href: HN + '/user?id=' + encodeURIComponent(s.user), target: '_blank', rel: 'noopener noreferrer', text: s.user }));
-  meta.appendChild(document.createTextNode(' · ' + timeAgo(s.time) + ' · '));
+  if (s.user) {
+    meta.appendChild(el('a', { href: HN + '/user?id=' + encodeURIComponent(s.user), target: '_blank', rel: 'noopener noreferrer', text: s.user }));
+    meta.appendChild(document.createTextNode(' · '));
+  }
+  meta.appendChild(document.createTextNode(timeAgo(s.time) + ' · '));
   meta.appendChild(el('a', { href: s.hnLink, target: '_blank', rel: 'noopener noreferrer', text: s.comments + ' comments' }));
   info.appendChild(meta);
 
+  return info;
+}
+
+function savedRow(item) {
+  const actions = el('div', { class: 'actions' });
+  const del = el('button', { text: 'delete', title: 'Remove ' + item.title + ' from Saved', type: 'button' });
+  del.setAttribute('data-action', 'unsave-story');
+  del.setAttribute('data-id', String(item.id));
+  actions.appendChild(del);
+
+  return el('div', { class: 'story saved-row' }, [storyInfo(item), actions]);
+}
+
+function storyRow(s) {
+  const info = storyInfo(s);
   const actions = el('div', { class: 'actions' });
   if (showBlocked) {
     if (isSiteBlocked(s.domain)) {
@@ -396,6 +480,16 @@ function storyRow(s) {
       actions.appendChild(actionButton('unblock user', 'Unblock ' + s.user, 'unblock-user', { name: s.user }));
     }
   } else {
+    const saved = isSaved(s.id);
+    const save = el('button', {
+      text: saved ? 'saved' : 'save',
+      title: saved ? 'Remove from Saved' : 'Save for later',
+      type: 'button',
+      class: saved ? 'muted' : ''
+    });
+    save.setAttribute('data-action', saved ? 'unsave-story' : 'save-story');
+    save.setAttribute('data-id', String(s.id));
+    actions.appendChild(save);
     if (s.user) actions.appendChild(actionButton('block user', 'Block ' + s.user, 'block-user', { name: s.user, title: s.title, extra: s.domain || 'self' }));
     if (s.domain) actions.appendChild(actionButton('block site', 'Block ' + normHost(s.domain) + ' and its subdomains', 'block-site', { name: s.domain, title: s.title, extra: s.user }));
   }
@@ -413,21 +507,32 @@ function matchingSiteRule(domain) {
   return hit ? normHost(hit.name) : normHost(domain);
 }
 
+function matchesQuery(s, query) {
+  if (!query) return true;
+  return (s.title + ' ' + (s.domain || '') + ' ' + s.user).toLowerCase().includes(query);
+}
+
 function renderStories() {
   const container = document.getElementById('storyList');
-  const list = stories[currentTab] || [];
   const query = document.getElementById('searchInput').value.trim().toLowerCase();
-
   const frag = document.createDocumentFragment();
-  for (const s of list) {
-    const blocked = isStoryBlocked(s);
-    if (showBlocked ? !blocked : blocked) continue;
-    if (query) {
-      const hay = (s.title + ' ' + (s.domain || '') + ' ' + s.user).toLowerCase();
-      if (!hay.includes(query)) continue;
+
+  if (currentTab === 'saved') {
+    // Blocking does not filter this list. You saved these on purpose, and a
+    // row that vanishes because you later blocked its site reads as data loss.
+    for (const item of readSaved()) {
+      if (!matchesQuery(item, query)) continue;
+      frag.appendChild(savedRow(item));
     }
-    frag.appendChild(storyRow(s));
+  } else {
+    for (const s of stories[currentTab] || []) {
+      const blocked = isStoryBlocked(s);
+      if (showBlocked ? !blocked : blocked) continue;
+      if (!matchesQuery(s, query)) continue;
+      frag.appendChild(storyRow(s));
+    }
   }
+
   container.innerHTML = '';
   container.appendChild(frag);
 }
@@ -468,7 +573,10 @@ function updateCounts() {
   const blockedCount = list.filter(isStoryBlocked).length;
   const visibleCount = list.length - blockedCount;
 
-  if (showBlocked) {
+  if (currentTab === 'saved') {
+    document.getElementById('storyCount').textContent = plural(readSaved().length, 'saved story', 'saved stories');
+    document.getElementById('hiddenCount').textContent = '';
+  } else if (showBlocked) {
     document.getElementById('storyCount').textContent = plural(blockedCount, 'blocked story', 'blocked stories');
     document.getElementById('hiddenCount').textContent = visibleCount + ' unblocked';
   } else {
@@ -541,19 +649,26 @@ function dispatchFetch(event, payload) {
   if (t.abort) abortFetch();
   if (t.start) startFetch(p.tab || currentTab);
   if (t.render) {
+    fetchingTab = null;
     hideListMessage();
-    report('Loaded ' + plural((stories[p.tab] || []).length, 'story', 'stories'));
-    setTimeout(() => { if (fetchState === IDLE) report(''); }, 3000);
+    // Progress belongs to the tab it is about. Landing while the reader is on
+    // another tab is not news to them.
+    if (p.tab === currentTab) {
+      report('Loaded ' + plural((stories[p.tab] || []).length, 'story', 'stories'));
+      setTimeout(() => { if (fetchState === IDLE) report(''); }, 3000);
+    }
     renderStories();
     updateCounts();
   }
   if (t.coldMessage) {
+    fetchingTab = null;
     report('');
     showListMessage();
     renderStories();
     updateCounts();
   }
   if (t.warmToast) {
+    fetchingTab = null;
     report('');
     hideListMessage();          // there is content on screen, so nothing is stranded
     toast('Could not reach Hacker News. Showing the stories already loaded.', true);
@@ -562,13 +677,17 @@ function dispatchFetch(event, payload) {
 
 let fetchToken = 0;
 let fetchController = null;
+let fetchingTab = null;
+
+function loadingText(tab) { return 'Loading ' + (TAB_LABEL[tab] || tab) + ' stories...'; }
 
 function startFetch(tab) {
   const token = ++fetchToken;
   const controller = new AbortController();
   fetchController = controller;
+  fetchingTab = tab;
   hideListMessage();
-  report('Loading ' + (TAB_LABEL[tab] || tab) + ' stories...');
+  if (tab === currentTab) report(loadingText(tab));
   fetchStories(tab, STORY_COUNT, controller.signal).then(items => {
     if (token !== fetchToken) return;       // a newer request has taken over
     stories[tab] = items;
@@ -584,6 +703,7 @@ function startFetch(tab) {
 function abortFetch() {
   fetchToken++;                             // anything still in flight is now stale
   if (fetchController) { fetchController.abort(); fetchController = null; }
+  fetchingTab = null;
   report('');
 }
 
@@ -594,6 +714,7 @@ let lastReconnectAt = 0;
 window.addEventListener('online', () => {
   const now = Date.now();
   if (now - lastReconnectAt < 5000) return;
+  if (FEED_TABS.indexOf(currentTab) === -1) return;
   lastReconnectAt = now;
   dispatchFetch('online', { tab: currentTab });
 });
@@ -635,10 +756,19 @@ function switchTab(tab) {
   clearSearch();
   renderStories();
   updateCounts();
+  // Carry the progress line across only if this tab is the one still loading.
+  report(fetchingTab === tab ? loadingText(tab) : '');
+  if (FEED_TABS.indexOf(tab) === -1) return;   // Saved is local; nothing to fetch, ever
   dispatchFetch(stories[tab].length === 0 ? 'switch-empty' : 'switch-has', { tab: tab });
 }
 
-function refreshAll() { dispatchFetch('refresh', { tab: currentTab }); }
+function refreshAll() {
+  if (FEED_TABS.indexOf(currentTab) === -1) {
+    toast('Saved is your own list. There is nothing to refresh.');
+    return;
+  }
+  dispatchFetch('refresh', { tab: currentTab });
+}
 
 /* ============================================================
    THE LAYER STACK
@@ -751,16 +881,18 @@ function exportBlocks() {
     version: EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
     sites: readList(SITES_KEY),
-    users: readList(USERS_KEY)
+    users: readList(USERS_KEY),
+    saved: readSaved()
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const a = el('a', { href: url, download: 'hn-blocklist-' + new Date().toISOString().slice(0, 10) + '.json' });
+  const a = el('a', { href: url, download: 'hn-tracker-backup-' + new Date().toISOString().slice(0, 10) + '.json' });
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
-  toast('Exported ' + plural(data.sites.length, 'site') + ' and ' + plural(data.users.length, 'user') + '.');
+  toast('Exported ' + plural(data.sites.length, 'site') + ', ' + plural(data.users.length, 'user') +
+    ' and ' + plural(data.saved.length, 'saved story', 'saved stories') + '.');
 }
 
 function importBlocks(file) {
@@ -771,13 +903,13 @@ function importBlocks(file) {
     try { data = JSON.parse(reader.result); }
     catch (err) { toast('Import failed: not valid JSON.', true); return; }
 
-    if (data.format !== 'hn-tracker-blocklist' || data.version !== EXPORT_VERSION) {
+    if (data.format !== 'hn-tracker-blocklist' || EXPORT_READS.indexOf(data.version) === -1) {
       toast('Import failed: this file is version ' + (data.version === undefined ? 'unknown' : data.version) +
-        ', and this app reads version ' + EXPORT_VERSION + '. Nothing was merged.', true);
+        ', and this app reads versions ' + EXPORT_READS.join(' and ') + '. Nothing was merged.', true);
       return;
     }
 
-    const addedSites = [], addedUsers = [];
+    const addedSites = [], addedUsers = [], addedSaved = [];
 
     mutateList(SITES_KEY, list => {
       const have = new Set(list.map(s => normHost(s.name)));
@@ -803,20 +935,48 @@ function importBlocks(file) {
       return list;
     });
 
-    if (addedSites.length || addedUsers.length) {
-      const siteSet = new Set(addedSites), userSet = new Set(addedUsers);
+    // A v1 file has no saved list, so this loop simply does nothing for one.
+    mutateSaved(list => {
+      const have = new Set(list.map(s => String(s.id)));
+      (data.saved || []).forEach(s => {
+        const id = s && s.id !== undefined ? String(s.id) : '';
+        if (!id || have.has(id)) return;
+        have.add(id);
+        list.push({
+          id: s.id,
+          title: s.title || '',
+          url: s.url || '',
+          domain: s.domain || null,
+          user: s.user || '',
+          comments: s.comments || 0,
+          time: s.time || 0,
+          hnLink: s.hnLink || (HN + '/item?id=' + s.id),
+          savedAt: s.savedAt || Date.now()
+        });
+        addedSaved.push(id);
+      });
+      return list.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+    });
+
+    if (addedSites.length || addedUsers.length || addedSaved.length) {
+      const siteSet = new Set(addedSites), userSet = new Set(addedUsers), savedSet = new Set(addedSaved);
       pushUndo({
         kind: 'import',
-        label: 'import of ' + plural(addedSites.length, 'site') + ' and ' + plural(addedUsers.length, 'user'),
+        label: 'import of ' + plural(addedSites.length, 'site') + ', ' + plural(addedUsers.length, 'user') +
+          ' and ' + plural(addedSaved.length, 'saved story', 'saved stories'),
+        // Saved has no undo of its own, but the import undo still has to take
+        // back everything the import put in, or it is only half an undo.
         undo: () => {
           mutateList(SITES_KEY, l => l.filter(s => !siteSet.has(normHost(s.name))));
           mutateList(USERS_KEY, l => l.filter(u => !userSet.has(normUser(u.name))));
+          mutateSaved(l => l.filter(s => !savedSet.has(String(s.id))));
         }
       });
     }
 
     refreshAllViews();
-    toast('Merged in ' + plural(addedSites.length, 'new site') + ' and ' + plural(addedUsers.length, 'new user') + '.');
+    toast('Merged in ' + plural(addedSites.length, 'new site') + ', ' + plural(addedUsers.length, 'new user') +
+      ' and ' + plural(addedSaved.length, 'new saved story', 'new saved stories') + '.');
   };
   reader.onerror = () => toast('Could not read that file.', true);
   reader.readAsText(file);
@@ -829,7 +989,7 @@ function importBlocks(file) {
    ============================================================ */
 
 window.addEventListener('storage', e => {
-  if (e.key === null || e.key === SITES_KEY || e.key === USERS_KEY) {
+  if (e.key === null || e.key === SITES_KEY || e.key === USERS_KEY || e.key === SAVED_KEY) {
     refreshAllViews();
   }
 });
@@ -994,8 +1154,13 @@ document.addEventListener('click', e => {
 
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
-  if (blockingFrozen()) return;
   const action = btn.getAttribute('data-action');
+
+  // Saving is outside the undo stack, so a pending confirm does not freeze it.
+  if (action === 'save-story')   { saveStory(btn.getAttribute('data-id')); return; }
+  if (action === 'unsave-story') { unsaveStory(btn.getAttribute('data-id')); return; }
+
+  if (blockingFrozen()) return;
   const name = btn.getAttribute('data-name');
   const title = btn.getAttribute('data-title') || '';
   const extra = btn.getAttribute('data-extra') || '';
@@ -1034,12 +1199,14 @@ if ('serviceWorker' in navigator) {
 
 migrateStoredLists();
 
-let savedTab = null;
-try { savedTab = localStorage.getItem(TAB_KEY); } catch (e) {}
-if (savedTab !== 'top' && savedTab !== 'new') savedTab = 'top';
-currentTab = savedTab;
+const TABS = FEED_TABS.concat(['saved']);
+let openingTab = null;
+try { openingTab = localStorage.getItem(TAB_KEY); } catch (e) {}
+if (TABS.indexOf(openingTab) === -1) openingTab = 'top';
+currentTab = openingTab;
 document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
 
 updateUndoButtons();
 refreshAllViews();
-dispatchFetch('switch-empty', { tab: currentTab });
+// Launching on Saved fetches nothing. Top or Newest loads when first switched to.
+if (FEED_TABS.indexOf(currentTab) !== -1) dispatchFetch('switch-empty', { tab: currentTab });

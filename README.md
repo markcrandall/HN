@@ -18,8 +18,20 @@ Android back gesture closes an open panel instead of leaving the app.
 
 In your browser, on this site's origin, and nowhere else. They are not synced,
 not uploaded, and not shared between browsers or devices. Clearing "Cookies and
-other site data" erases them, so use **Export backup** now and then. **Import /
-merge** always merges: it adds what is missing and never replaces what you have.
+other site data" erases them, so use **Export backup** now and then. The backup
+carries the blocklists and the saved stories together. **Import / merge** always
+merges: it adds what is missing and never replaces what you have, and it still
+accepts the older blocklist-only backups.
+
+## Saved
+
+Every story in the feed has a **save** button. Saved stories collect on the
+**Saved** tab, newest first, showing the same information as the feed rows
+without the score, each with a delete button. The filter box works there too.
+
+Saved is your own list, so it behaves differently from the feed in three ways:
+it never fetches and Refresh does nothing on it, blocking a site does not hide a
+story you had already saved, and delete is immediate with no undo.
 
 ## Undo
 
