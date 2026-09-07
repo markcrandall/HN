@@ -136,14 +136,20 @@ header button:hover, .tab-btn:hover { background: var(--accent); }
   line-height: 0;
   position: relative;
 }
+/* The mark's own fill and stroke are attributes in the <symbol>, because a
+   <use> shadow tree is out of reach of this stylesheet. Only inherited values
+   cross into it, which is how currentColor still works. */
 .icon-btn svg { width: 19px; height: 19px; display: block; }
-.icon-btn svg circle { fill: none; stroke: currentColor; stroke-width: 2; }
-.icon-btn svg polygon { fill: currentColor; stroke: none; }
 .icon-btn:hover:not(:disabled) { background: var(--accent); }
-.icon-btn:disabled { opacity: 0.35; cursor: default; }
+/* Disabled reads as grey rather than as a faded copy: an icon washed out to a
+   third of its opacity drops under the 3:1 a non-text control needs. */
+.icon-btn:disabled { color: var(--muted); border-color: var(--border); cursor: default; }
 .icon-btn::after { content: ''; position: absolute; inset: -10px -3px; }
 .icon-btn.warn { color: var(--green); border-color: var(--green); }
 .icon-btn.warn:hover:not(:disabled) { background: var(--green); color: #111; }
+/* Same specificity as .warn and later in the file, so the panel copies grey out
+   too rather than staying green while doing nothing. */
+.icon-btn.warn:disabled { color: var(--muted); border-color: var(--border); }
 
 .disclosure-btn {
   display: none;

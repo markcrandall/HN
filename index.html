@@ -19,9 +19,12 @@
 <body>
 
 <svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true" focusable="false">
+  <!-- Presentation goes on the shapes as attributes, not in app.css. A <use>
+       clones this into a shadow tree that stylesheet selectors cannot reach,
+       so a CSS rule here leaves the circle at its default black fill. -->
   <symbol id="icon-undo" viewBox="0 0 24 24">
-    <circle cx="12" cy="12" r="7.5" stroke-dasharray="29.5 11.8 5.9 0"></circle>
-    <polygon points="13.62 3.02 19.28 4.72 15.32 8.68"></polygon>
+    <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="29.5 11.8 5.9 0"></circle>
+    <polygon points="13.62 3.02 19.28 4.72 15.32 8.68" fill="currentColor" stroke="none"></polygon>
   </symbol>
 </svg>
 
