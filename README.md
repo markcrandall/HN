@@ -16,8 +16,14 @@ same article match. Text posts have no link, so those key on the title instead,
 which is safe there and would not be safe generally.
 
 The Show Blocked view turns the list inside out so you can see everything you
-have hidden and put any of it back. A blocked post has no panel of its own,
-because there is nothing to manage: Show Blocked is where you undo one.
+have hidden and put any of it back.
+
+The header reads **Blocked sites users posts**, and each opens its own list
+where you can review and delete entries. The posts list is the one you cannot
+see any other way: Show Blocked only reveals an entry while a matching story is
+in the current feed, so a block on something not posted right now is invisible
+there. Entries blocked before that panel existed show only their link, because
+there was nothing else stored to show.
 
 ## Install it
 

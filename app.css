@@ -97,7 +97,15 @@ header h1 { font-size: 1.35rem; color: var(--orange); }
 }
 .header-search .search-clear:hover { color: var(--text); }
 .header-search .search-clear.visible { display: block; }
-header .controls { display: flex; gap: 8px; }
+/* Refresh, then "Blocked" said once over the three lists it applies to. Saying
+   it once is what leaves room for a third list at 360px. */
+header .controls { display: flex; align-items: center; gap: 8px; }
+header .control-label {
+  font-size: 0.83rem;
+  color: var(--muted);
+  white-space: nowrap;
+  margin-left: 6px;
+}
 header button, .tab-btn {
   background: var(--surface2);
   color: var(--text);
@@ -545,12 +553,19 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
     width: 100%;
     gap: 6px;
   }
+  header .controls {
+    gap: 6px;
+    justify-content: flex-start;
+  }
+  /* Sized to their labels, not stretched: four stretched buttons plus the label
+     wrap to a second row, four content-sized ones fit inside 296px at 320. */
   header .controls button {
-    flex: 1;
-    padding: 7px 4px;
+    flex: none;
+    padding: 7px 9px;
     font-size: 0.83rem;
     white-space: nowrap;
   }
+  header .control-label { margin-left: 4px; }
   .header-search {
     order: 2;
     flex: 1 1 100%;

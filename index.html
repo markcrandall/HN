@@ -44,8 +44,10 @@
     </div>
     <div class="controls">
       <button id="btnRefresh" type="button">Refresh</button>
-      <button id="btnSites" type="button">Blocked Sites</button>
-      <button id="btnUsers" type="button">Blocked Users</button>
+      <span class="control-label" id="blockedLabel">Blocked</span>
+      <button id="btnSites" type="button" aria-describedby="blockedLabel">sites</button>
+      <button id="btnUsers" type="button" aria-describedby="blockedLabel">users</button>
+      <button id="btnPosts" type="button" aria-describedby="blockedLabel">posts</button>
     </div>
   </header>
 
@@ -133,6 +135,32 @@
         <button id="blockUserBtn" type="button">Block</button>
       </div>
       <div id="blockedUsersList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Blocked Posts Panel -->
+<div class="panel-overlay" id="blockedPostsPanel">
+  <div class="panel" role="dialog" aria-modal="true" aria-label="Blocked Posts">
+    <div class="panel-header">
+      <h2>Blocked Posts</h2>
+      <button class="panel-close" data-close="blockedPosts" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-tools">
+        <button data-act="export" type="button">Export backup</button>
+        <button data-act="import" type="button">Import / merge</button>
+        <button data-act="undo" class="icon-btn warn" type="button" title="Undo last change" aria-label="Undo last change" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>
+        </button>
+      </div>
+      <div class="panel-note">
+        A blocked post stays blocked when it is posted again, because the block matches the
+        link rather than the item. Text posts have no link, so those match on the title.
+        Entries blocked before this panel existed show only their link.
+      </div>
+      <div class="panel-count" id="postsCount"></div>
+      <div id="blockedPostsList"></div>
     </div>
   </div>
 </div>

@@ -514,13 +514,40 @@ function addBlockedPost(id) {
   let alreadyThere = false;
   mutateUnsorted(POSTS_KEY, list => {
     if (list.some(p => postEntryMatches(p, keys))) { alreadyThere = true; return list; }
-    list.push({ id: keys.id, url: keys.url, title: keys.title, time: Date.now() });
+    list.push({
+      id: keys.id,
+      url: keys.url,
+      title: keys.title,
+      // Kept only so the panel can show what this entry is. Never matched on:
+      // matching uses keys.title, which is empty unless the post has no link.
+      label: story.title || '',
+      site: story.domain ? normHost(story.domain) : '',
+      time: Date.now()
+    });
     return list;
   });
   if (alreadyThere) return;
   pushUndo({
     label: 'blocked a post',
     undo: () => mutateUnsorted(POSTS_KEY, l => l.filter(p => !postEntryMatches(p, keys)))
+  });
+  refreshAllViews();
+}
+
+// Deleting straight from the panel, where there is no story to match against.
+function removeBlockedPostEntry(entryId) {
+  if (blockingFrozen()) return;
+  const key = String(entryId);
+  let removed = [];
+  mutateUnsorted(POSTS_KEY, list => {
+    removed = list.filter(p => String(p.id) === key);
+    return list.filter(p => String(p.id) !== key);
+  });
+  if (!removed.length) return;
+  pushUndo({
+    label: 'unblocked ' + (removed[0].label || removed[0].url || 'a post'),
+    undo: () => mutateUnsorted(POSTS_KEY, l =>
+      l.filter(p => String(p.id) !== key).concat(removed))
   });
   refreshAllViews();
 }
@@ -887,6 +914,33 @@ function renderBlockedSites() {
   document.getElementById('sitesCount').textContent = plural(readList(SITES_KEY).length, 'site') + ' blocked';
 }
 
+/* Entries made before the panel existed carry no label, so they show their link
+   and say so rather than pretending to be a titled row. */
+function renderBlockedPosts() {
+  const container = document.getElementById('blockedPostsList');
+  const list = readList(POSTS_KEY).slice().sort((a, b) => (b.time || 0) - (a.time || 0));
+  const frag = document.createDocumentFragment();
+
+  list.forEach(item => {
+    const info = el('div', { class: 'blocked-info' });
+    const name = item.label || item.url || item.title || 'Blocked post';
+    info.appendChild(el('span', { class: 'blocked-name', text: name }));
+    // An entry from before this panel has only a link, which is already the
+    // name, so there is nothing to add underneath it.
+    const where = item.site || item.url || (item.title ? 'text post' : '');
+    if (where && where !== name) info.appendChild(el('span', { class: 'blocked-meta', text: where }));
+
+    const rm = el('button', { text: '×', title: 'Unblock this post', type: 'button' });
+    rm.setAttribute('data-action', 'unblock-post-entry');
+    rm.setAttribute('data-id', String(item.id));
+    frag.appendChild(el('div', { class: 'blocked-item' }, [info, rm]));
+  });
+
+  container.innerHTML = '';
+  container.appendChild(frag);
+  document.getElementById('postsCount').textContent = plural(list.length, 'post') + ' blocked';
+}
+
 function renderBlockedUsers() {
   renderBlockedList('blockedUsersList', USERS_KEY, 'unblock-user');
   document.getElementById('usersCount').textContent = plural(readList(USERS_KEY).length, 'user') + ' blocked';
@@ -914,6 +968,7 @@ function updateCounts() {
 function refreshAllViews() {
   renderBlockedSites();
   renderBlockedUsers();
+  renderBlockedPosts();
   renderStories();
   updateCounts();
 }
@@ -1160,6 +1215,7 @@ function applyLayerOpen(name) {
   overlay.classList.add('open');
   if (name === 'blockedSites') renderBlockedSites();
   if (name === 'blockedUsers') renderBlockedUsers();
+  if (name === 'blockedPosts') renderBlockedPosts();
   if (name === 'settings') renderSettings();
   if (name === 'video') mountVideo();
   updateUndoButtons();
@@ -1286,7 +1342,10 @@ function importBlocks(file) {
         const id = p && p.id !== undefined ? String(p.id) : '';
         if (!id || have.has(id)) return;
         have.add(id);
-        list.push({ id: id, url: p.url || '', title: p.title || '', time: p.time || Date.now() });
+        list.push({
+          id: id, url: p.url || '', title: p.title || '',
+          label: p.label || '', site: p.site || '', time: p.time || Date.now()
+        });
         addedPosts.push(id);
       });
       return list;
@@ -1491,6 +1550,7 @@ function clearSearch() {
 document.getElementById('btnRefresh').addEventListener('click', refreshAll);
 document.getElementById('btnSites').addEventListener('click', () => openLayer('blockedSites'));
 document.getElementById('btnUsers').addEventListener('click', () => openLayer('blockedUsers'));
+document.getElementById('btnPosts').addEventListener('click', () => openLayer('blockedPosts'));
 document.getElementById('viewToggleBtn').addEventListener('click', toggleBlockedView);
 document.getElementById('undoBtn').addEventListener('click', performUndo);
 document.getElementById('searchInput').addEventListener('input', onSearchInput);
@@ -1550,7 +1610,7 @@ document.getElementById('importFile').addEventListener('change', e => {
 document.addEventListener('click', e => {
   if (layer === 'disclosure'
       && !e.target.closest('#disclosureBtn, #viewToggle')
-      && !e.target.closest('#btnSites, #btnUsers')) {   // those swap the layer themselves
+      && !e.target.closest('#btnSites, #btnUsers, #btnPosts')) {   // those swap the layer themselves
     closeLayer();
   }
 
@@ -1582,6 +1642,7 @@ document.addEventListener('click', e => {
   if (action === 'unblock-site') removeBlockedSite(name);
   if (action === 'unblock-user') removeBlockedUser(name);
   if (action === 'unblock-post') removeBlockedPost(btn.getAttribute('data-id'));
+  if (action === 'unblock-post-entry') removeBlockedPostEntry(btn.getAttribute('data-id'));
 });
 
 document.addEventListener('keydown', e => {
