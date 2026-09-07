@@ -44,11 +44,11 @@ import brought in.
 
 The gear in the Blocked Sites panel opens Settings. There is one so far:
 
-**Use xcancel to open x.com sites.** Story links on `x.com`, and on any
-subdomain of it, open through `xcancel.com` instead. The swap happens when a
-link is drawn, not when a story is stored, so the row still shows the site the
-story came from, blocking still matches on `x.com`, and turning the setting off
-puts every link back. Links to `twitter.com` are left alone.
+**Use xcancel to open x.com and twitter.com sites.** Story links on either, and
+on any subdomain of either, open through `xcancel.com` instead. The swap happens
+when a link is drawn, not when a story is stored, so the row still shows the
+site the story came from, blocking still matches on the original site, and
+turning the setting off puts every link back.
 
 Settings live in this browser and are not part of the backup, because importing
 someone else's file should merge your lists, not change your preferences.

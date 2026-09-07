@@ -116,7 +116,7 @@ function renderSettings() {
 /* The rewrite happens when a link is drawn, never when a story is stored, so
    the saved list keeps the canonical URL and turning the setting off puts every
    link back where it was. */
-const XCANCEL_FOR = ['x.com'];
+const XCANCEL_FOR = ['x.com', 'twitter.com'];
 
 function linkUrl(s) {
   const raw = s.url || s.hnLink;
