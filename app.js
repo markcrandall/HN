@@ -399,26 +399,16 @@ function hostMatches(host, blockedName) {
 
 /* One shared schema version for the blocklists and the UI state. A release
    that only changes one area leaves the other alone: its branch is a no-op.
-   Version 1 is the first schema on the hosted origin, so there is nothing to
-   convert; it only clears keys the file:// build left behind. */
+   Steps are removed once they have run everywhere, so the version only ever
+   goes up: 1 cleared keys the file:// build left behind, 2 cleared a flag left
+   by a one-time lookup and is gone. What remains is the clean-up that still
+   has to meet a store written by the very first build. */
 function migrateStoredLists() {
   if (localStorage.getItem(SCHEMA_KEY) === String(SCHEMA_VERSION)) return;
   try {
     localStorage.removeItem('hn_blocked_schema');   // superseded by hn_schema
     localStorage.removeItem(SITES_KEY + '_prev');   // superseded by the undo stack
     localStorage.removeItem(USERS_KEY + '_prev');
-
-    // Version 2: drop the "looked" flag the one-time lookup of older blocked
-    // posts left behind. Nothing reads it, and the code that wrote it is gone.
-    const posts = readList(POSTS_KEY);
-    if (posts.some(p => p.looked !== undefined)) {
-      writeList(POSTS_KEY, posts.map(p => {
-        const copy = Object.assign({}, p);
-        delete copy.looked;
-        return copy;
-      }));
-    }
-
     localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION));
   } catch (e) { /* a full or blocked store is not a reason to fail the launch */ }
 }
