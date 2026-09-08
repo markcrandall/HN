@@ -11,7 +11,7 @@ const SETTINGS_KEY = 'hn_settings';
 const SCHEMA_KEY = 'hn_schema';
 const TAB_KEY    = 'hn_tab';
 
-const SCHEMA_VERSION = 1;   // storage schema, shared by the lists and the UI state
+const SCHEMA_VERSION = 2;   // storage schema, shared by the lists and the UI state
 const EXPORT_VERSION = 3;   // 2 added the saved list, 3 adds the blocked posts
 const EXPORT_READS   = [1, 2, 3];   // an older file simply has fewer sections
 const STORY_COUNT    = 500;
@@ -407,6 +407,18 @@ function migrateStoredLists() {
     localStorage.removeItem('hn_blocked_schema');   // superseded by hn_schema
     localStorage.removeItem(SITES_KEY + '_prev');   // superseded by the undo stack
     localStorage.removeItem(USERS_KEY + '_prev');
+
+    // Version 2: drop the "looked" flag the one-time lookup of older blocked
+    // posts left behind. Nothing reads it, and the code that wrote it is gone.
+    const posts = readList(POSTS_KEY);
+    if (posts.some(p => p.looked !== undefined)) {
+      writeList(POSTS_KEY, posts.map(p => {
+        const copy = Object.assign({}, p);
+        delete copy.looked;
+        return copy;
+      }));
+    }
+
     localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION));
   } catch (e) { /* a full or blocked store is not a reason to fail the launch */ }
 }
@@ -940,59 +952,6 @@ function renderBlockedPosts() {
   document.getElementById('postsCount').textContent = plural(list.length, 'post') + ' blocked';
 }
 
-/* Entries made before blocking recorded anything but an id have nothing to show
-   and, worse, nothing to match a repost on. The id is enough to ask HN what the
-   story was, so opening the panel fills them in once and writes the result
-   back. That fixes the row and upgrades the entry from id-only to link-keyed,
-   so a repost of it starts being caught. */
-
-let backfilling = false;
-
-async function backfillBlockedPosts() {
-  if (backfilling) return;
-  const missing = readList(POSTS_KEY)
-    .filter(p => !p.label && !p.looked && /^\d+$/.test(String(p.id)))
-    .slice(0, 50);
-  if (!missing.length) return;
-
-  backfilling = true;
-  try {
-    const items = await mapLimit(missing, 6, p => fetchJson(API + '/item/' + p.id + '.json'));
-    const found = new Map();
-    const asked = new Set(missing.map(p => String(p.id)));
-    items.forEach((item, i) => {
-      if (item && item.title) found.set(String(missing[i].id), item);
-    });
-
-    mutateUnsorted(POSTS_KEY, list => list.map(p => {
-      const key = String(p.id);
-      const item = found.get(key);
-      // Asked and got nothing back: a comment, a deleted item, an id that never
-      // existed. Marked so it is not asked about again on every panel open.
-      if (!item) return asked.has(key) && !p.label ? Object.assign({}, p, { looked: 1 }) : p;
-      if (p.label) return p;
-      let host = '';
-      if (item.url) { try { host = normHost(new URL(item.url).hostname); } catch (err) { host = ''; } }
-      const url = normUrl(item.url || '');
-      return Object.assign({}, p, {
-        label: item.title || '',
-        site: host,
-        url: p.url || url,
-        // Title only stands in for a missing link, same rule as when blocking.
-        title: p.title || (url ? '' : normTitle(item.title || ''))
-      });
-    }));
-
-    renderBlockedPosts();
-    renderStories();
-    updateCounts();
-  } catch (err) {
-    console.error('[hn] could not look up blocked posts', err);
-  } finally {
-    backfilling = false;
-  }
-}
-
 function renderBlockedUsers() {
   renderBlockedList('blockedUsersList', USERS_KEY, 'unblock-user');
   document.getElementById('usersCount').textContent = plural(readList(USERS_KEY).length, 'user') + ' blocked';
@@ -1267,7 +1226,7 @@ function applyLayerOpen(name) {
   overlay.classList.add('open');
   if (name === 'blockedSites') renderBlockedSites();
   if (name === 'blockedUsers') renderBlockedUsers();
-  if (name === 'blockedPosts') { renderBlockedPosts(); backfillBlockedPosts(); }
+  if (name === 'blockedPosts') renderBlockedPosts();
   if (name === 'settings') renderSettings();
   if (name === 'video') mountVideo();
   updateUndoButtons();
